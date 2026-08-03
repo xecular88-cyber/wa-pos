@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="餐厅POS">
+<meta name="theme-color" content="#12151c">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
+<title>餐厅点餐 POS</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="logo">🍜</span>
+      <span class="brand" id="restaurantName">我的餐厅</span>
+    </div>
+    <nav class="tabs" id="mainTabs">
+      <button class="tab-btn active" data-tab="order">点餐</button>
+      <button class="tab-btn" data-tab="orders">订单记录</button>
+      <button class="tab-btn" data-tab="menu">菜单管理</button>
+      <button class="tab-btn" data-tab="settings">设置</button>
+    </nav>
+    <div class="topbar-right">
+      <span id="clock"></span>
+    </div>
+  </header>
+
+  <!-- ORDER TAB -->
+  <section class="view" id="view-order">
+    <div class="order-layout">
+
+      <div class="menu-pane">
+        <div class="table-row">
+          <label>桌号</label>
+          <input type="text" id="tableNumber" placeholder="例如 A5 / 外带" value="外带">
+        </div>
+        <div class="category-tabs" id="categoryTabs"></div>
+        <div class="menu-grid" id="menuGrid"></div>
+      </div>
+
+      <aside class="cart-pane">
+        <div class="cart-header">
+          <h2>当前订单</h2>
+          <button class="link-btn" id="clearCartBtn">清空</button>
+        </div>
+        <div class="cart-items" id="cartItems">
+          <p class="empty-hint">还没有点任何菜品</p>
+        </div>
+        <div class="cart-summary">
+          <div class="row"><span>小计</span><span id="sumSubtotal">$0.00</span></div>
+          <div class="row"><span>折扣</span>
+            <span>
+              <input type="number" id="discountInput" min="0" value="0" step="1">%
+            </span>
+          </div>
+          <div class="row"><span id="taxLabel">税 (0%)</span><span id="sumTax">$0.00</span></div>
+          <div class="row total"><span>总计</span><span id="sumTotal">$0.00</span></div>
+        </div>
+        <button class="checkout-btn" id="checkoutBtn">结账</button>
+      </aside>
+
+    </div>
+  </section>
+
+  <!-- ORDERS HISTORY TAB -->
+  <section class="view hidden" id="view-orders">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>订单记录</h2>
+        <div class="stats" id="dayStats"></div>
+      </div>
+      <div class="orders-list" id="ordersList"></div>
+    </div>
+  </section>
+
+  <!-- MENU MANAGEMENT TAB -->
+  <section class="view hidden" id="view-menu">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>菜单管理</h2>
+        <button class="primary-btn" id="addItemBtn">+ 添加菜品</button>
+      </div>
+      <table class="menu-table">
+        <thead>
+          <tr><th>菜品名称</th><th>分类</th><th>价格</th><th>操作</th></tr>
+        </thead>
+        <tbody id="menuTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SETTINGS TAB -->
+  <section class="view hidden" id="view-settings">
+    <div class="panel narrow">
+      <h2>设置</h2>
+      <div class="form-row">
+        <label>餐厅名称</label>
+        <input type="text" id="settingRestaurantName">
+      </div>
+      <div class="form-row">
+        <label>税率 (%)</label>
+        <input type="number" id="settingTaxRate" min="0" step="0.1">
+      </div>
+      <div class="form-row">
+        <label>货币符号</label>
+        <input type="text" id="settingCurrency" maxlength="3">
+      </div>
+      <button class="primary-btn" id="saveSettingsBtn">保存设置</button>
+      <hr>
+      <button class="danger-btn" id="resetDataBtn">重置所有数据（恢复演示数据）</button>
+    </div>
+  </section>
+
+</div>
+
+<!-- Item edit modal -->
+<div class="modal-backdrop hidden" id="itemModal">
+  <div class="modal">
+    <h3 id="itemModalTitle">添加菜品</h3>
+    <div class="form-row">
+      <label>名称</label>
+      <input type="text" id="itemNameInput">
+    </div>
+    <div class="form-row">
+      <label>分类</label>
+      <input type="text" id="itemCategoryInput" list="categoryList">
+      <datalist id="categoryList"></datalist>
+    </div>
+    <div class="form-row">
+      <label>价格</label>
+      <input type="number" id="itemPriceInput" min="0" step="0.01">
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" id="itemCancelBtn">取消</button>
+      <button class="danger-btn hidden" id="itemDeleteBtn">删除</button>
+      <button class="primary-btn" id="itemSaveBtn">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Item note modal -->
+<div class="modal-backdrop hidden" id="noteModal">
+  <div class="modal">
+    <h3>备注 / 数量</h3>
+    <div class="qty-row">
+      <button class="qty-btn" id="noteQtyMinus">−</button>
+      <span id="noteQtyValue">1</span>
+      <button class="qty-btn" id="noteQtyPlus">+</button>
+    </div>
+    <div class="form-row">
+      <label>备注（例如：不要香菜）</label>
+      <input type="text" id="noteInput" placeholder="可选">
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" id="noteCancelBtn">取消</button>
+      <button class="primary-btn" id="noteAddBtn">加入订单</button>
+    </div>
+  </div>
+</div>
+
+<!-- Checkout / Receipt modal -->
+<div class="modal-backdrop hidden" id="checkoutModal">
+  <div class="modal receipt-modal">
+    <div id="receiptView"></div>
+    <div class="modal-actions">
+      <button class="ghost-btn" id="checkoutCancelBtn">返回</button>
+      <button class="primary-btn" id="confirmPayBtn">确认收款</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
