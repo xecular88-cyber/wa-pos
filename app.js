@@ -5,19 +5,34 @@ const STORAGE_KEY = "pos_data_v1";
 const DEMO_DATA = {
   settings: { restaurantName: "我的餐厅", taxRate: 0, currency: "$" },
   menu: [
-    { id: "m1", name: "招牌炒饭", category: "主食", price: 12.5 },
-    { id: "m2", name: "牛肉面", category: "主食", price: 14.0 },
-    { id: "m3", name: "扬州炒饭", category: "主食", price: 11.0 },
-    { id: "m4", name: "宫保鸡丁", category: "热菜", price: 15.5 },
-    { id: "m5", name: "麻婆豆腐", category: "热菜", price: 10.5 },
-    { id: "m6", name: "糖醋里脊", category: "热菜", price: 16.0 },
-    { id: "m7", name: "凉拌黄瓜", category: "凉菜", price: 6.5 },
-    { id: "m8", name: "皮蛋豆腐", category: "凉菜", price: 7.0 },
-    { id: "m9", name: "酸辣汤", category: "汤品", price: 5.5 },
-    { id: "m10", name: "紫菜蛋花汤", category: "汤品", price: 5.0 },
-    { id: "m11", name: "可乐", category: "饮品", price: 3.0 },
-    { id: "m12", name: "鲜榨橙汁", category: "饮品", price: 5.0 },
-    { id: "m13", name: "珍珠奶茶", category: "饮品", price: 6.0 },
+    { id: "m1", name: "招牌炒饭", category: "主食", price: 12.5, addOns: [
+      { id: "a1", name: "加蛋", price: 1 },
+      { id: "a2", name: "加辣", price: 0 },
+      { id: "a3", name: "加大份", price: 2 },
+    ] },
+    { id: "m2", name: "牛肉面", category: "主食", price: 14.0, addOns: [
+      { id: "a4", name: "加牛肉", price: 3 },
+      { id: "a5", name: "加辣", price: 0 },
+    ] },
+    { id: "m3", name: "扬州炒饭", category: "主食", price: 11.0, addOns: [] },
+    { id: "m4", name: "宫保鸡丁", category: "热菜", price: 15.5, addOns: [
+      { id: "a6", name: "加辣", price: 0 },
+      { id: "a7", name: "加饭", price: 1.5 },
+    ] },
+    { id: "m5", name: "麻婆豆腐", category: "热菜", price: 10.5, addOns: [] },
+    { id: "m6", name: "糖醋里脊", category: "热菜", price: 16.0, addOns: [] },
+    { id: "m7", name: "凉拌黄瓜", category: "凉菜", price: 6.5, addOns: [] },
+    { id: "m8", name: "皮蛋豆腐", category: "凉菜", price: 7.0, addOns: [] },
+    { id: "m9", name: "酸辣汤", category: "汤品", price: 5.5, addOns: [] },
+    { id: "m10", name: "紫菜蛋花汤", category: "汤品", price: 5.0, addOns: [] },
+    { id: "m11", name: "可乐", category: "饮品", price: 3.0, addOns: [
+      { id: "a8", name: "加冰", price: 0 },
+    ] },
+    { id: "m12", name: "鲜榨橙汁", category: "饮品", price: 5.0, addOns: [] },
+    { id: "m13", name: "珍珠奶茶", category: "饮品", price: 6.0, addOns: [
+      { id: "a9", name: "少糖", price: 0 },
+      { id: "a10", name: "加珍珠", price: 1 },
+    ] },
   ],
   orders: [],
 };
@@ -40,11 +55,13 @@ let DB = loadData();
 
 /* ---------- State ---------- */
 
-let cart = []; // { menuId, name, price, qty, note }
+let cart = []; // { menuId, name, price (unit price incl. add-ons), basePrice, addOns, qty, note }
 let activeCategory = "全部";
 let editingItemId = null;
+let editingAddOns = []; // working copy of add-ons while item modal is open
 let noteTargetItem = null;
 let noteQty = 1;
+let noteSelectedAddOns = []; // add-ons selected while note modal is open
 
 /* ---------- Helpers ---------- */
 
@@ -114,7 +131,11 @@ function renderMenuGrid() {
   items.forEach((item) => {
     const btn = document.createElement("button");
     btn.className = "menu-item";
-    btn.innerHTML = `<span class="name">${escapeHtml(item.name)}</span><span class="price">${fmt(item.price)}</span>`;
+    const hasAddOns = item.addOns && item.addOns.length > 0;
+    btn.innerHTML = `
+      <span class="name">${escapeHtml(item.name)}${hasAddOns ? ' <span class="addon-badge">+加料</span>' : ""}</span>
+      <span class="price">${fmt(item.price)}</span>
+    `;
     btn.addEventListener("click", () => openNoteModal(item));
     grid.appendChild(btn);
   });
@@ -129,9 +150,45 @@ function escapeHtml(s) {
 function openNoteModal(item) {
   noteTargetItem = item;
   noteQty = 1;
+  noteSelectedAddOns = [];
+  $("#noteModalTitle").textContent = item.name;
   $("#noteQtyValue").textContent = noteQty;
   $("#noteInput").value = "";
+  renderNoteAddOns(item);
   $("#noteModal").classList.remove("hidden");
+}
+
+function renderNoteAddOns(item) {
+  const addOns = item.addOns || [];
+  const section = $("#noteAddOnsSection");
+  const list = $("#noteAddOnsList");
+  list.innerHTML = "";
+  if (addOns.length === 0) {
+    section.classList.add("hidden");
+    return;
+  }
+  section.classList.remove("hidden");
+  addOns.forEach((addOn) => {
+    const row = document.createElement("label");
+    row.className = "addon-check-row";
+    row.innerHTML = `
+      <span class="addon-check-left">
+        <input type="checkbox" data-addon-id="${addOn.id}">
+        ${escapeHtml(addOn.name)}
+      </span>
+      <span class="addon-check-price">${addOn.price > 0 ? "+" + fmt(addOn.price) : "免费"}</span>
+    `;
+    const checkbox = row.querySelector("input");
+    checkbox.addEventListener("change", () => {
+      row.classList.toggle("selected", checkbox.checked);
+      if (checkbox.checked) {
+        noteSelectedAddOns.push(addOn);
+      } else {
+        noteSelectedAddOns = noteSelectedAddOns.filter((a) => a.id !== addOn.id);
+      }
+    });
+    list.appendChild(row);
+  });
 }
 
 $("#noteQtyMinus").addEventListener("click", () => {
@@ -146,11 +203,14 @@ $("#noteCancelBtn").addEventListener("click", () => $("#noteModal").classList.ad
 
 $("#noteAddBtn").addEventListener("click", () => {
   const note = $("#noteInput").value.trim();
+  const addOnsTotal = noteSelectedAddOns.reduce((s, a) => s + a.price, 0);
   cart.push({
     lineId: uid(),
     menuId: noteTargetItem.id,
     name: noteTargetItem.name,
-    price: noteTargetItem.price,
+    basePrice: noteTargetItem.price,
+    addOns: noteSelectedAddOns.slice(),
+    price: noteTargetItem.price + addOnsTotal,
     qty: noteQty,
     note,
   });
@@ -169,10 +229,12 @@ function renderCart() {
     cart.forEach((line) => {
       const div = document.createElement("div");
       div.className = "cart-line";
+      const addOnsStr = (line.addOns || []).map((a) => a.name).join("、");
       div.innerHTML = `
         <div class="cart-line-top">
           <div>
             <div class="cart-line-name">${escapeHtml(line.name)}</div>
+            ${addOnsStr ? `<div class="cart-line-note">加料：${escapeHtml(addOnsStr)}</div>` : ""}
             ${line.note ? `<div class="cart-line-note">备注：${escapeHtml(line.note)}</div>` : ""}
           </div>
           <div class="cart-line-price">${fmt(line.price * line.qty)}</div>
@@ -257,7 +319,9 @@ function openReceiptPreview() {
     <div class="receipt-divider"></div>
   `;
   cart.forEach((l) => {
-    html += `<div class="receipt-line"><span>${escapeHtml(l.name)} x${l.qty}${l.note ? " (" + escapeHtml(l.note) + ")" : ""}</span><span>${fmt(l.price * l.qty)}</span></div>`;
+    const addOnsStr = (l.addOns || []).map((a) => a.name).join("、");
+    const extra = [addOnsStr, l.note].filter(Boolean).join(" / ");
+    html += `<div class="receipt-line"><span>${escapeHtml(l.name)} x${l.qty}${extra ? " (" + escapeHtml(extra) + ")" : ""}</span><span>${fmt(l.price * l.qty)}</span></div>`;
   });
   html += `<div class="receipt-divider"></div>`;
   html += `<div class="receipt-line"><span>小计</span><span>${fmt(t.subtotal)}</span></div>`;
@@ -279,7 +343,7 @@ $("#confirmPayBtn").addEventListener("click", () => {
     id: uid(),
     createdAt: new Date().toISOString(),
     table,
-    items: cart.map((l) => ({ name: l.name, price: l.price, qty: l.qty, note: l.note })),
+    items: cart.map((l) => ({ name: l.name, price: l.price, qty: l.qty, note: l.note, addOns: l.addOns || [] })),
     subtotal: t.subtotal,
     discountPct: t.discountPct,
     tax: t.tax,
@@ -313,7 +377,10 @@ function renderOrders() {
   DB.orders.forEach((o) => {
     const div = document.createElement("div");
     div.className = "order-card";
-    const itemsStr = o.items.map((i) => `${i.name} x${i.qty}`).join("、");
+    const itemsStr = o.items.map((i) => {
+      const addOnsStr = (i.addOns || []).map((a) => a.name).join("+");
+      return `${i.name}${addOnsStr ? "(" + addOnsStr + ")" : ""} x${i.qty}`;
+    }).join("、");
     div.innerHTML = `
       <div class="order-card-top"><span>桌号 ${escapeHtml(o.table)}</span><span>${fmt(o.total)}</span></div>
       <div class="order-card-meta">${new Date(o.createdAt).toLocaleString()}</div>
@@ -352,13 +419,45 @@ $("#addItemBtn").addEventListener("click", () => openItemModal(null));
 
 function openItemModal(item) {
   editingItemId = item ? item.id : null;
+  editingAddOns = item && item.addOns ? item.addOns.map((a) => ({ ...a })) : [];
   $("#itemModalTitle").textContent = item ? "编辑菜品" : "添加菜品";
   $("#itemNameInput").value = item ? item.name : "";
   $("#itemCategoryInput").value = item ? item.category : "";
   $("#itemPriceInput").value = item ? item.price : "";
   $("#itemDeleteBtn").classList.toggle("hidden", !item);
+  renderAddOnEditList();
   $("#itemModal").classList.remove("hidden");
 }
+
+function renderAddOnEditList() {
+  const wrap = $("#itemAddOnsList");
+  wrap.innerHTML = "";
+  editingAddOns.forEach((addOn, idx) => {
+    const row = document.createElement("div");
+    row.className = "addon-edit-row";
+    row.innerHTML = `
+      <input type="text" class="addon-name-input" placeholder="名称，例如加蛋" value="${escapeHtml(addOn.name)}">
+      <input type="number" class="addon-price-input" min="0" step="0.01" placeholder="价格" value="${addOn.price}">
+      <button type="button" class="addon-remove-btn">×</button>
+    `;
+    row.querySelector(".addon-name-input").addEventListener("input", (e) => {
+      editingAddOns[idx].name = e.target.value;
+    });
+    row.querySelector(".addon-price-input").addEventListener("input", (e) => {
+      editingAddOns[idx].price = Number(e.target.value) || 0;
+    });
+    row.querySelector(".addon-remove-btn").addEventListener("click", () => {
+      editingAddOns.splice(idx, 1);
+      renderAddOnEditList();
+    });
+    wrap.appendChild(row);
+  });
+}
+
+$("#addAddOnBtn").addEventListener("click", () => {
+  editingAddOns.push({ id: uid(), name: "", price: 0 });
+  renderAddOnEditList();
+});
 
 $("#itemCancelBtn").addEventListener("click", () => $("#itemModal").classList.add("hidden"));
 
@@ -370,11 +469,14 @@ $("#itemSaveBtn").addEventListener("click", () => {
     alert("请填写有效的菜品名称和价格");
     return;
   }
+  const addOns = editingAddOns
+    .map((a) => ({ id: a.id, name: a.name.trim(), price: Number(a.price) || 0 }))
+    .filter((a) => a.name);
   if (editingItemId) {
     const item = DB.menu.find((m) => m.id === editingItemId);
-    Object.assign(item, { name, category, price });
+    Object.assign(item, { name, category, price, addOns });
   } else {
-    DB.menu.push({ id: uid(), name, category, price });
+    DB.menu.push({ id: uid(), name, category, price, addOns });
   }
   saveData(DB);
   $("#itemModal").classList.add("hidden");

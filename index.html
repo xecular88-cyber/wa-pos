@@ -138,6 +138,11 @@
       <label>价格</label>
       <input type="number" id="itemPriceInput" min="0" step="0.01">
     </div>
+    <div class="form-row">
+      <label>Add-on 选项（可选，例如加蛋 +$1，价格填 0 表示免费）</label>
+      <div class="addon-edit-list" id="itemAddOnsList"></div>
+      <button class="ghost-btn small" id="addAddOnBtn" type="button">+ 添加 Add-on</button>
+    </div>
     <div class="modal-actions">
       <button class="ghost-btn" id="itemCancelBtn">取消</button>
       <button class="danger-btn hidden" id="itemDeleteBtn">删除</button>
@@ -149,11 +154,15 @@
 <!-- Item note modal -->
 <div class="modal-backdrop hidden" id="noteModal">
   <div class="modal">
-    <h3>备注 / 数量</h3>
+    <h3 id="noteModalTitle">备注 / 数量</h3>
     <div class="qty-row">
       <button class="qty-btn" id="noteQtyMinus">−</button>
       <span id="noteQtyValue">1</span>
       <button class="qty-btn" id="noteQtyPlus">+</button>
+    </div>
+    <div class="addon-section hidden" id="noteAddOnsSection">
+      <label>加料 Add-on（可多选）</label>
+      <div class="addon-list" id="noteAddOnsList"></div>
     </div>
     <div class="form-row">
       <label>备注（例如：不要香菜）</label>
