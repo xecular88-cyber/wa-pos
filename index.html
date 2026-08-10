@@ -27,6 +27,7 @@
       <button class="tab-btn" data-tab="orders">订单记录</button>
       <button class="tab-btn" data-tab="menu">菜单管理</button>
       <button class="tab-btn" data-tab="settings">设置</button>
+      <button class="tab-btn" data-tab="feedback">💬 反馈</button>
     </nav>
     <div class="topbar-right">
       <span id="clock"></span>
@@ -116,6 +117,26 @@
       <button class="primary-btn" id="saveSettingsBtn">保存设置</button>
       <hr>
       <button class="danger-btn" id="resetDataBtn">重置所有数据（恢复演示数据）</button>
+    </div>
+  </section>
+
+  <!-- FEEDBACK TAB -->
+  <section class="view hidden" id="view-feedback">
+    <div class="panel narrow">
+      <h2>💬 提交改动需求</h2>
+      <p class="feedback-hint">想加个功能、改个价格逻辑、调整界面……写在这里提交，我们会尽快处理并自动更新系统（通常几十分钟内生效）。</p>
+      <div class="form-row">
+        <label>你的名字（可选）</label>
+        <input type="text" id="feedbackName" placeholder="例如：老板 / 阿明">
+      </div>
+      <div class="form-row">
+        <label>想改什么？</label>
+        <textarea id="feedbackMessage" rows="6" placeholder="例如：希望结账时能选“现金/信用卡”两种付款方式，并在小票上显示"></textarea>
+      </div>
+      <button class="primary-btn" id="submitFeedbackBtn">提交（需要 GitHub 账号）</button>
+      <p class="feedback-hint">提交会打开 GitHub 新建 issue 的页面，需要登录一次 GitHub（免费账号即可），确认内容后点 “Submit new issue” 就送出了。</p>
+      <hr>
+      <p class="feedback-hint">已提交的需求：<a href="https://github.com/xecular88-cyber/wa-pos/issues" target="_blank" rel="noopener">在 GitHub 查看处理进度 →</a></p>
     </div>
   </section>
 

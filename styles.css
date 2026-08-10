@@ -167,10 +167,14 @@ html, body {
 
 .form-row { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
 .form-row label { font-size: 13.5px; font-weight: 600; color: var(--ink-soft); }
-.form-row input {
+.form-row input, .form-row textarea {
   border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 15px;
-  background: var(--bg);
+  background: var(--bg); font-family: inherit;
 }
+.form-row textarea { resize: vertical; }
+
+.feedback-hint { color: var(--ink-soft); font-size: 13.5px; line-height: 1.6; }
+.feedback-hint a { color: var(--accent); font-weight: 600; }
 
 /* Modals */
 .modal-backdrop {
