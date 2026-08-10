@@ -523,32 +523,6 @@ $("#resetDataBtn").addEventListener("click", () => {
   initApp();
 });
 
-/* ---------- Feedback (client change requests -> GitHub issue) ---------- */
-
-const FEEDBACK_REPO = "xecular88-cyber/wa-pos";
-
-$("#submitFeedbackBtn").addEventListener("click", () => {
-  const name = $("#feedbackName").value.trim();
-  const message = $("#feedbackMessage").value.trim();
-  if (!message) {
-    alert("请先写一下想改什么");
-    return;
-  }
-  const title = `[反馈] ${message.slice(0, 60)}`;
-  const body = [
-    message,
-    "",
-    "---",
-    `提交人：${name || "（未填写）"}`,
-    `提交时间：${new Date().toLocaleString()}`,
-    `餐厅：${DB.settings.restaurantName}`,
-  ].join("\n");
-  const url = `https://github.com/${FEEDBACK_REPO}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}&labels=client-feedback`;
-  window.open(url, "_blank", "noopener");
-  $("#feedbackMessage").value = "";
-  $("#feedbackName").value = "";
-});
-
 /* ---------- Init ---------- */
 
 function initApp() {
