@@ -75,8 +75,12 @@
     <div class="panel">
       <div class="panel-header">
         <h2>订单记录</h2>
-        <div class="stats" id="dayStats"></div>
+        <div class="orders-date-row">
+          <input type="date" id="ordersDateInput">
+          <button class="ghost-btn small" id="printSettlementBtn">🖨 打印 / 保存 PDF</button>
+        </div>
       </div>
+      <div class="stats" id="dayStats"></div>
       <div class="orders-list" id="ordersList"></div>
     </div>
   </section>
@@ -90,7 +94,7 @@
       </div>
       <table class="menu-table">
         <thead>
-          <tr><th>菜品名称</th><th>分类</th><th>价格</th><th>操作</th></tr>
+          <tr><th>顺序</th><th>照片</th><th>菜品名称</th><th>分类</th><th>价格</th><th>操作</th></tr>
         </thead>
         <tbody id="menuTableBody"></tbody>
       </table>
@@ -139,6 +143,19 @@
       <input type="number" id="itemPriceInput" min="0" step="0.01">
     </div>
     <div class="form-row">
+      <label>照片（可选）</label>
+      <div id="itemPhotoPreviewWrap" class="photo-preview-wrap hidden">
+        <img id="itemPhotoPreview" class="photo-preview" alt="">
+        <button type="button" class="photo-remove-btn" id="itemPhotoRemoveBtn">删除照片</button>
+      </div>
+      <input type="file" id="itemPhotoInput" accept="image/*">
+    </div>
+    <div class="form-row">
+      <label>必选选项组（可选，例如"份量"：必须从中选一个，价格可加可不加）</label>
+      <div class="required-group-edit-list" id="itemRequiredGroupsList"></div>
+      <button class="ghost-btn small" id="addRequiredGroupBtn" type="button">+ 添加必选选项组</button>
+    </div>
+    <div class="form-row">
       <label>Add-on 选项（可选，例如加蛋 +$1，价格填 0 表示免费）</label>
       <div class="addon-edit-list" id="itemAddOnsList"></div>
       <button class="ghost-btn small" id="addAddOnBtn" type="button">+ 添加 Add-on</button>
@@ -160,6 +177,7 @@
       <span id="noteQtyValue">1</span>
       <button class="qty-btn" id="noteQtyPlus">+</button>
     </div>
+    <div class="required-groups-wrap" id="noteRequiredGroupsWrap"></div>
     <div class="addon-section hidden" id="noteAddOnsSection">
       <label>加料 Add-on（可多选）</label>
       <div class="addon-list" id="noteAddOnsList"></div>
@@ -185,6 +203,33 @@
     </div>
   </div>
 </div>
+
+<!-- Order edit modal -->
+<div class="modal-backdrop hidden" id="orderEditModal">
+  <div class="modal">
+    <h3>编辑订单</h3>
+    <div class="form-row">
+      <label>桌号</label>
+      <input type="text" id="orderEditTable">
+    </div>
+    <div class="cart-items" id="orderEditItems"></div>
+    <div class="cart-summary">
+      <div class="row"><span>小计</span><span id="orderEditSubtotal">$0.00</span></div>
+      <div class="row"><span>折扣</span>
+        <span><input type="number" id="orderEditDiscount" min="0" step="1">%</span>
+      </div>
+      <div class="row"><span id="orderEditTaxLabel">税</span><span id="orderEditTax">$0.00</span></div>
+      <div class="row total"><span>总计</span><span id="orderEditTotal">$0.00</span></div>
+    </div>
+    <div class="modal-actions">
+      <button class="ghost-btn" id="orderEditCancelBtn">取消</button>
+      <button class="primary-btn" id="orderEditSaveBtn">保存修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden print-only view for daily settlement PDF -->
+<div id="printSettlementView"></div>
 
 <script src="app.js"></script>
 </body>
