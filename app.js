@@ -41,12 +41,17 @@ const DEMO_DATA = {
     ] },
   ],
   orders: [],
+  openTabs: {}, // { [tabKey]: { cart: [...], discountPct: 0 } } — one in-progress order per table/takeout
 };
 
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (!parsed.openTabs) parsed.openTabs = {};
+      return parsed;
+    }
   } catch (e) { /* ignore corrupt data */ }
   const fresh = structuredClone(DEMO_DATA);
   saveData(fresh);
@@ -310,10 +315,32 @@ function parseTableLabel(label) {
   return m ? { mode: "dinein", tableNum: Number(m[1]) } : { mode: "takeout", tableNum: 1 };
 }
 
+/* ---------- Per-table open orders ---------- */
+/* Each dine-in table (and takeout) keeps its own in-progress cart, so
+   switching tables never loses or mixes up what's already been ordered. */
+
+function currentTabKey() {
+  return orderMode === "dinein" ? `table-${orderTableNum}` : "takeout";
+}
+
+function loadCartForCurrentTable() {
+  const tab = DB.openTabs[currentTabKey()] || { cart: [], discountPct: 0 };
+  cart = tab.cart;
+  $("#discountInput").value = tab.discountPct || 0;
+  renderCart();
+}
+
+function syncCurrentOpenTab() {
+  const discountPct = Math.min(100, Math.max(0, Number($("#discountInput").value) || 0));
+  DB.openTabs[currentTabKey()] = { cart, discountPct };
+  saveData(DB);
+}
+
 const renderOrderTableMode = wireTableModeToggle(
   "orderModeToggle", "tableGrid",
   () => orderMode, (m) => { orderMode = m; },
-  () => orderTableNum, (n) => { orderTableNum = n; }
+  () => orderTableNum, (n) => { orderTableNum = n; },
+  loadCartForCurrentTable
 );
 
 const renderOrderEditTableMode = wireTableModeToggle(
@@ -526,6 +553,7 @@ function renderSummary() {
   $("#sumTax").textContent = fmt(tax);
   $("#sumTotal").textContent = fmt(total);
   $("#checkoutBtn").disabled = cart.length === 0;
+  syncCurrentOpenTab();
 }
 
 $("#discountInput").addEventListener("input", renderSummary);
@@ -599,7 +627,7 @@ $("#confirmPayBtn").addEventListener("click", () => {
 
   cart = [];
   $("#discountInput").value = 0;
-  renderCart();
+  renderCart(); // also clears this table's open tab via syncCurrentOpenTab()
   $("#checkoutModal").classList.add("hidden");
 });
 
@@ -1131,7 +1159,7 @@ function initApp() {
   $("#restaurantName").textContent = DB.settings.restaurantName;
   renderCategoryTabs();
   renderMenuGrid();
-  renderCart();
+  loadCartForCurrentTable();
   fillSettingsForm();
   initOrdersDateInput();
 }
