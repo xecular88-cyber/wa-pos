@@ -3,7 +3,7 @@
 const STORAGE_KEY = "pos_data_v1";
 
 const DEMO_DATA = {
-  settings: { restaurantName: "我的餐厅", taxRate: 0, currency: "$" },
+  settings: { restaurantName: "我的餐厅", taxRate: 0, currency: "$", tableCount: 12 },
   menu: [
     { id: "m1", name: "招牌炒饭", category: "主食", price: 12.5, addOns: [
       { id: "a1", name: "加蛋", price: 1 },
@@ -76,6 +76,13 @@ let selectedOrdersDate = todayDateStr(); // yyyy-mm-dd, drives the Orders tab fi
 let editingOrderId = null;
 let editingOrderItems = []; // working copy of an order's line items while the edit modal is open
 
+let orderMode = "takeout"; // 'dinein' | 'takeout', for the Order tab
+let orderTableNum = 1;
+let editingOrderMode = "takeout"; // same, for the order-edit modal
+let editingOrderTableNum = 1;
+
+let noteModalContext = "cart"; // 'cart' | 'orderEdit' — where "加入订单" should push the line
+
 /* ---------- Helpers ---------- */
 
 const $ = (sel) => document.querySelector(sel);
@@ -95,6 +102,89 @@ function todayDateStr() {
 
 function cartSubtotal() {
   return cart.reduce((sum, l) => sum + l.price * l.qty, 0);
+}
+
+/* ---------- Generic touch-friendly drag reorder ---------- */
+/* Uses Pointer Events (not the HTML5 Drag & Drop API, which iPad Safari
+   doesn't support for touch) so this works with mouse AND touch. */
+
+function enableDragReorder(containerId, rowSelector, onReorder) {
+  const container = $(`#${containerId}`);
+  let dragEl = null;
+  let startClientY = 0;
+  let dy = 0;
+
+  function naturalTopOf(el) {
+    const t = el.style.transform;
+    el.style.transform = "translateY(0px)";
+    const top = el.getBoundingClientRect().top;
+    el.style.transform = t;
+    return top;
+  }
+
+  function getRows() {
+    return Array.from(container.querySelectorAll(rowSelector));
+  }
+
+  container.addEventListener("pointerdown", (e) => {
+    const handle = e.target.closest(".drag-handle");
+    if (!handle) return;
+    const row = handle.closest(rowSelector);
+    if (!row || !container.contains(row)) return;
+    e.preventDefault();
+    dragEl = row;
+    startClientY = e.clientY;
+    dy = 0;
+    dragEl.classList.add("dragging");
+    try { dragEl.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+  });
+
+  container.addEventListener("pointermove", (e) => {
+    if (!dragEl) return;
+    dy = e.clientY - startClientY;
+    dragEl.style.transform = `translateY(${dy}px)`;
+
+    const dragRect = dragEl.getBoundingClientRect();
+    const dragMid = dragRect.top + dragRect.height / 2;
+
+    for (const row of getRows()) {
+      if (row === dragEl) continue;
+      const rect = row.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      const dragIsBefore = !!(dragEl.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+      if (dragMid < mid && !dragIsBefore) {
+        const before = dragEl.getBoundingClientRect().top;
+        container.insertBefore(dragEl, row);
+        const naturalTop = naturalTopOf(dragEl);
+        dy = before - naturalTop;
+        dragEl.style.transform = `translateY(${dy}px)`;
+        startClientY = e.clientY - dy;
+        break;
+      }
+      if (dragMid > mid && dragIsBefore) {
+        const before = dragEl.getBoundingClientRect().top;
+        container.insertBefore(dragEl, row.nextSibling);
+        const naturalTop = naturalTopOf(dragEl);
+        dy = before - naturalTop;
+        dragEl.style.transform = `translateY(${dy}px)`;
+        startClientY = e.clientY - dy;
+        break;
+      }
+    }
+  });
+
+  function endDrag() {
+    if (!dragEl) return;
+    dragEl.classList.remove("dragging");
+    dragEl.style.transform = "";
+    const orderIds = getRows().map((r) => r.dataset.dragId);
+    dragEl = null;
+    onReorder(orderIds);
+  }
+
+  container.addEventListener("pointerup", endDrag);
+  container.addEventListener("pointercancel", endDrag);
 }
 
 /* ---------- Tabs ---------- */
@@ -171,9 +261,69 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+/* ---------- Table mode (dine-in / takeout) selector ---------- */
+
+function wireTableModeToggle(toggleId, selectId, getMode, setMode, getTableNum, setTableNum, onChange) {
+  const toggle = $(`#${toggleId}`);
+  const select = $(`#${selectId}`);
+
+  function render() {
+    toggle.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === getMode()));
+    select.classList.toggle("hidden", getMode() !== "dinein");
+    if (getMode() === "dinein") {
+      const count = DB.settings.tableCount || 12;
+      select.innerHTML = "";
+      for (let i = 1; i <= count; i++) {
+        const opt = document.createElement("option");
+        opt.value = i;
+        opt.textContent = `桌 ${i}`;
+        select.appendChild(opt);
+      }
+      select.value = Math.min(getTableNum(), count);
+    }
+  }
+
+  toggle.querySelectorAll(".mode-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      setMode(b.dataset.mode);
+      render();
+      if (onChange) onChange();
+    });
+  });
+  select.addEventListener("change", () => {
+    setTableNum(Number(select.value));
+    if (onChange) onChange();
+  });
+
+  render();
+  return render;
+}
+
+function currentTableLabel(mode, tableNum) {
+  return mode === "dinein" ? `桌 ${tableNum}` : "外带";
+}
+
+function parseTableLabel(label) {
+  const m = /^桌\s*(\d+)$/.exec(label || "");
+  return m ? { mode: "dinein", tableNum: Number(m[1]) } : { mode: "takeout", tableNum: 1 };
+}
+
+const renderOrderTableMode = wireTableModeToggle(
+  "orderModeToggle", "tableSelect",
+  () => orderMode, (m) => { orderMode = m; },
+  () => orderTableNum, (n) => { orderTableNum = n; }
+);
+
+const renderOrderEditTableMode = wireTableModeToggle(
+  "orderEditModeToggle", "orderEditTableSelect",
+  () => editingOrderMode, (m) => { editingOrderMode = m; },
+  () => editingOrderTableNum, (n) => { editingOrderTableNum = n; }
+);
+
 /* ---------- Note / quantity modal ---------- */
 
-function openNoteModal(item) {
+function openNoteModal(item, context) {
+  noteModalContext = context || "cart";
   noteTargetItem = item;
   noteQty = 1;
   noteSelectedAddOns = [];
@@ -282,7 +432,7 @@ $("#noteAddBtn").addEventListener("click", () => {
   }));
   const requiredTotal = requiredChoices.reduce((s, c) => s + c.priceDelta, 0);
 
-  cart.push({
+  const line = {
     lineId: uid(),
     menuId: noteTargetItem.id,
     name: noteTargetItem.name,
@@ -292,9 +442,16 @@ $("#noteAddBtn").addEventListener("click", () => {
     price: noteTargetItem.price + addOnsTotal + requiredTotal,
     qty: noteQty,
     note,
-  });
+  };
+
+  if (noteModalContext === "orderEdit") {
+    editingOrderItems.push(line);
+    renderOrderEditItems();
+  } else {
+    cart.push(line);
+    renderCart();
+  }
   $("#noteModal").classList.add("hidden");
-  renderCart();
 });
 
 /* ---------- Cart rendering ---------- */
@@ -391,7 +548,7 @@ function computeTotals() {
 
 function openReceiptPreview() {
   const t = computeTotals();
-  const table = $("#tableNumber").value.trim() || "外带";
+  const table = currentTableLabel(orderMode, orderTableNum);
   const now = new Date();
 
   let html = `
@@ -420,7 +577,7 @@ $("#checkoutCancelBtn").addEventListener("click", () => $("#checkoutModal").clas
 
 $("#confirmPayBtn").addEventListener("click", () => {
   const t = computeTotals();
-  const table = $("#tableNumber").value.trim() || "外带";
+  const table = currentTableLabel(orderMode, orderTableNum);
   const order = {
     id: uid(),
     createdAt: new Date().toISOString(),
@@ -515,8 +672,18 @@ $("#printSettlementBtn").addEventListener("click", () => {
   if (dayOrders.length === 0) {
     html += `<div class="print-line"><span>这一天没有订单记录</span></div>`;
   } else {
-    dayOrders.forEach((o) => {
-      html += `<div class="print-line"><span>桌号 ${escapeHtml(o.table)} ・ ${new Date(o.createdAt).toLocaleTimeString()} ・ ${escapeHtml(orderItemsSummary(o))}</span><span>${fmt(o.total)}</span></div>`;
+    dayOrders.forEach((o, i) => {
+      html += `<div class="print-line" style="font-weight:700;"><span>订单 ${i + 1} ・ 桌号 ${escapeHtml(o.table)} ・ ${new Date(o.createdAt).toLocaleTimeString()}</span><span>${fmt(o.total)}</span></div>`;
+      o.items.forEach((it) => {
+        const requiredStr = (it.requiredChoices || []).map((c) => c.choiceName).join("+");
+        const addOnsStr = (it.addOns || []).map((a) => a.name).join("+");
+        const extra = [requiredStr, addOnsStr].filter(Boolean).join("+");
+        html += `<div class="print-line"><span>　${escapeHtml(it.name)}${extra ? "(" + escapeHtml(extra) + ")" : ""} x${it.qty}</span><span>${fmt(it.price * it.qty)}</span></div>`;
+      });
+      if (o.discountPct > 0) {
+        html += `<div class="print-line"><span>　折扣 (${o.discountPct}%)</span><span>-${fmt(o.subtotal * (o.discountPct / 100))}</span></div>`;
+      }
+      html += `<div class="print-line"><span>　税 (${o.taxRate || 0}%)</span><span>${fmt(o.tax)}</span></div>`;
     });
     html += `<div class="print-divider"></div>`;
     html += `<div class="print-line"><span>订单数</span><span>${dayOrders.length}</span></div>`;
@@ -534,11 +701,40 @@ $("#printSettlementBtn").addEventListener("click", () => {
 function openOrderEditModal(order) {
   editingOrderId = order.id;
   editingOrderItems = order.items.map((i) => ({ ...i, lineId: uid() }));
-  $("#orderEditTable").value = order.table;
+  const parsed = parseTableLabel(order.table);
+  editingOrderMode = parsed.mode;
+  editingOrderTableNum = parsed.tableNum;
+  renderOrderEditTableMode();
   $("#orderEditDiscount").value = order.discountPct || 0;
+  $("#orderEditItemPicker").classList.add("hidden");
   renderOrderEditItems();
   $("#orderEditModal").classList.remove("hidden");
 }
+
+$("#orderEditAddItemBtn").addEventListener("click", () => {
+  const picker = $("#orderEditItemPicker");
+  picker.innerHTML = `<option value="">选择要添加的菜品…</option>`;
+  categories().filter((c) => c !== "全部").forEach((cat) => {
+    const group = document.createElement("optgroup");
+    group.label = cat;
+    DB.menu.filter((m) => m.category === cat).forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = `${m.name}（${fmt(m.price)}）`;
+      group.appendChild(opt);
+    });
+    picker.appendChild(group);
+  });
+  picker.classList.remove("hidden");
+  picker.value = "";
+});
+
+$("#orderEditItemPicker").addEventListener("change", (e) => {
+  const item = DB.menu.find((m) => m.id === e.target.value);
+  if (!item) return;
+  e.target.classList.add("hidden");
+  openNoteModal(item, "orderEdit");
+});
 
 function renderOrderEditItems() {
   const wrap = $("#orderEditItems");
@@ -618,7 +814,7 @@ $("#orderEditSaveBtn").addEventListener("click", () => {
   const order = DB.orders.find((o) => o.id === editingOrderId);
   if (!order) return;
   const t = orderEditTotals();
-  order.table = $("#orderEditTable").value.trim() || "外带";
+  order.table = currentTableLabel(editingOrderMode, editingOrderTableNum);
   order.items = editingOrderItems.map((l) => ({
     name: l.name, price: l.price, qty: l.qty, note: l.note,
     addOns: l.addOns || [], requiredChoices: l.requiredChoices || [],
@@ -638,25 +834,20 @@ $("#orderEditSaveBtn").addEventListener("click", () => {
 function renderMenuTable() {
   const tbody = $("#menuTableBody");
   tbody.innerHTML = "";
-  DB.menu.forEach((item, idx) => {
+  DB.menu.forEach((item) => {
     const tr = document.createElement("tr");
+    tr.dataset.dragId = item.id;
     const thumb = item.photo ? `<img class="menu-table-thumb" src="${item.photo}" alt="">` : "";
     tr.innerHTML = `
-      <td>
-        <div class="reorder-btns">
-          <button data-act="up" ${idx === 0 ? "disabled" : ""}>▲</button>
-          <button data-act="down" ${idx === DB.menu.length - 1 ? "disabled" : ""}>▼</button>
-        </div>
-      </td>
+      <td><span class="drag-handle">⠿</span></td>
       <td>${thumb}</td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(item.category)}</td>
       <td>${fmt(item.price)}</td>
-      <td class="row-actions"><button data-act="edit">编辑</button></td>
+      <td class="row-actions"><button data-act="edit">编辑</button><button data-act="dup">复制</button></td>
     `;
     tr.querySelector('[data-act="edit"]').addEventListener("click", () => openItemModal(item));
-    tr.querySelector('[data-act="up"]').addEventListener("click", () => moveMenuItem(item.id, -1));
-    tr.querySelector('[data-act="down"]').addEventListener("click", () => moveMenuItem(item.id, 1));
+    tr.querySelector('[data-act="dup"]').addEventListener("click", () => duplicateMenuItem(item.id));
     tbody.appendChild(tr);
   });
   const dl = $("#categoryList");
@@ -668,15 +859,25 @@ function renderMenuTable() {
   });
 }
 
-function moveMenuItem(id, direction) {
+function duplicateMenuItem(id) {
+  const item = DB.menu.find((m) => m.id === id);
+  if (!item) return;
+  const copy = {
+    ...item,
+    id: uid(),
+    name: `${item.name} 副本`,
+    addOns: (item.addOns || []).map((a) => ({ ...a, id: uid() })),
+    requiredGroups: (item.requiredGroups || []).map((g) => ({
+      ...g, id: uid(), choices: g.choices.map((c) => ({ ...c, id: uid() })),
+    })),
+  };
   const idx = DB.menu.findIndex((m) => m.id === id);
-  const newIdx = idx + direction;
-  if (idx === -1 || newIdx < 0 || newIdx >= DB.menu.length) return;
-  [DB.menu[idx], DB.menu[newIdx]] = [DB.menu[newIdx], DB.menu[idx]];
+  DB.menu.splice(idx + 1, 0, copy);
   saveData(DB);
   renderMenuTable();
   renderCategoryTabs();
   renderMenuGrid();
+  openItemModal(copy);
 }
 
 $("#addItemBtn").addEventListener("click", () => openItemModal(null));
@@ -817,11 +1018,9 @@ function renderAddOnEditList() {
   editingAddOns.forEach((addOn, idx) => {
     const row = document.createElement("div");
     row.className = "addon-edit-row";
+    row.dataset.dragId = addOn.id;
     row.innerHTML = `
-      <div class="reorder-btns">
-        <button type="button" data-act="up" ${idx === 0 ? "disabled" : ""}>▲</button>
-        <button type="button" data-act="down" ${idx === editingAddOns.length - 1 ? "disabled" : ""}>▼</button>
-      </div>
+      <span class="drag-handle">⠿</span>
       <input type="text" class="addon-name-input" placeholder="名称，例如加蛋" value="${escapeHtml(addOn.name)}">
       <input type="number" class="addon-price-input" min="0" step="0.01" placeholder="价格" value="${addOn.price}">
       <button type="button" class="addon-remove-btn">×</button>
@@ -834,16 +1033,6 @@ function renderAddOnEditList() {
     });
     row.querySelector(".addon-remove-btn").addEventListener("click", () => {
       editingAddOns.splice(idx, 1);
-      renderAddOnEditList();
-    });
-    row.querySelector('[data-act="up"]').addEventListener("click", () => {
-      if (idx === 0) return;
-      [editingAddOns[idx - 1], editingAddOns[idx]] = [editingAddOns[idx], editingAddOns[idx - 1]];
-      renderAddOnEditList();
-    });
-    row.querySelector('[data-act="down"]').addEventListener("click", () => {
-      if (idx === editingAddOns.length - 1) return;
-      [editingAddOns[idx + 1], editingAddOns[idx]] = [editingAddOns[idx], editingAddOns[idx + 1]];
       renderAddOnEditList();
     });
     wrap.appendChild(row);
@@ -908,15 +1097,18 @@ function fillSettingsForm() {
   $("#settingRestaurantName").value = DB.settings.restaurantName;
   $("#settingTaxRate").value = DB.settings.taxRate;
   $("#settingCurrency").value = DB.settings.currency;
+  $("#settingTableCount").value = DB.settings.tableCount || 12;
 }
 
 $("#saveSettingsBtn").addEventListener("click", () => {
   DB.settings.restaurantName = $("#settingRestaurantName").value.trim() || "我的餐厅";
   DB.settings.taxRate = Number($("#settingTaxRate").value) || 0;
   DB.settings.currency = $("#settingCurrency").value.trim() || "$";
+  DB.settings.tableCount = Math.max(1, Number($("#settingTableCount").value) || 12);
   saveData(DB);
   $("#restaurantName").textContent = DB.settings.restaurantName;
   renderSummary();
+  renderOrderTableMode();
   alert("设置已保存");
 });
 
@@ -941,6 +1133,19 @@ function initApp() {
 }
 
 initApp();
+
+enableDragReorder("menuTableBody", "tr", (orderIds) => {
+  DB.menu = orderIds.map((id) => DB.menu.find((m) => m.id === id));
+  saveData(DB);
+  renderMenuTable();
+  renderCategoryTabs();
+  renderMenuGrid();
+});
+
+enableDragReorder("itemAddOnsList", ".addon-edit-row", (orderIds) => {
+  editingAddOns = orderIds.map((id) => editingAddOns.find((a) => a.id === id));
+  renderAddOnEditList();
+});
 
 /* Register service worker for "Add to Home Screen" offline support (best effort) */
 if ("serviceWorker" in navigator) {
