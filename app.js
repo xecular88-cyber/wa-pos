@@ -274,8 +274,7 @@ function wireTableModeToggle(toggleId, gridId, getMode, setMode, getTableNum, se
 
   function render() {
     toggle.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === getMode()));
-    grid.classList.toggle("hidden", getMode() !== "dinein");
-    if (getMode() !== "dinein") return;
+    grid.classList.remove("hidden");
 
     const count = DB.settings.tableCount || 12;
     if (getTableNum() > count) setTableNum(count);
@@ -307,12 +306,15 @@ function wireTableModeToggle(toggleId, gridId, getMode, setMode, getTableNum, se
 }
 
 function currentTableLabel(mode, tableNum) {
-  return mode === "dinein" ? `桌 ${tableNum}` : "外带";
+  return mode === "dinein" ? `桌 ${tableNum}` : `外带 #${tableNum}`;
 }
 
 function parseTableLabel(label) {
-  const m = /^桌\s*(\d+)$/.exec(label || "");
-  return m ? { mode: "dinein", tableNum: Number(m[1]) } : { mode: "takeout", tableNum: 1 };
+  let m = /^桌\s*(\d+)$/.exec(label || "");
+  if (m) return { mode: "dinein", tableNum: Number(m[1]) };
+  m = /^外带\s*#?(\d+)$/.exec(label || "");
+  if (m) return { mode: "takeout", tableNum: Number(m[1]) };
+  return { mode: "takeout", tableNum: 1 }; // legacy orders just labeled "外带"
 }
 
 /* ---------- Per-table open orders ---------- */
@@ -320,7 +322,7 @@ function parseTableLabel(label) {
    switching tables never loses or mixes up what's already been ordered. */
 
 function currentTabKey() {
-  return orderMode === "dinein" ? `table-${orderTableNum}` : "takeout";
+  return `${orderMode}-${orderTableNum}`;
 }
 
 function loadCartForCurrentTable() {
