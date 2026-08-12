@@ -1146,6 +1146,18 @@ $("#saveSettingsBtn").addEventListener("click", () => {
   alert("设置已保存");
 });
 
+$("#clearOrdersBtn").addEventListener("click", () => {
+  if (!confirm("将清空所有订单记录（菜单、加料、必选选项、照片都会保留）。确定继续？")) return;
+  DB.orders = [];
+  DB.openTabs = {};
+  saveData(DB);
+  cart = [];
+  selectedOrdersDate = todayDateStr();
+  loadCartForCurrentTable();
+  renderOrders();
+  alert("订单记录已清空");
+});
+
 $("#resetDataBtn").addEventListener("click", () => {
   if (!confirm("将清空所有菜单、订单，恢复为演示数据。确定继续？")) return;
   DB = structuredClone(DEMO_DATA);
