@@ -263,23 +263,29 @@ function escapeHtml(s) {
 
 /* ---------- Table mode (dine-in / takeout) selector ---------- */
 
-function wireTableModeToggle(toggleId, selectId, getMode, setMode, getTableNum, setTableNum, onChange) {
+function wireTableModeToggle(toggleId, gridId, getMode, setMode, getTableNum, setTableNum, onChange) {
   const toggle = $(`#${toggleId}`);
-  const select = $(`#${selectId}`);
+  const grid = $(`#${gridId}`);
 
   function render() {
     toggle.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === getMode()));
-    select.classList.toggle("hidden", getMode() !== "dinein");
-    if (getMode() === "dinein") {
-      const count = DB.settings.tableCount || 12;
-      select.innerHTML = "";
-      for (let i = 1; i <= count; i++) {
-        const opt = document.createElement("option");
-        opt.value = i;
-        opt.textContent = `桌 ${i}`;
-        select.appendChild(opt);
-      }
-      select.value = Math.min(getTableNum(), count);
+    grid.classList.toggle("hidden", getMode() !== "dinein");
+    if (getMode() !== "dinein") return;
+
+    const count = DB.settings.tableCount || 12;
+    if (getTableNum() > count) setTableNum(count);
+    grid.innerHTML = "";
+    for (let i = 1; i <= count; i++) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "table-grid-btn" + (i === getTableNum() ? " active" : "");
+      btn.textContent = i;
+      btn.addEventListener("click", () => {
+        setTableNum(i);
+        render();
+        if (onChange) onChange();
+      });
+      grid.appendChild(btn);
     }
   }
 
@@ -289,10 +295,6 @@ function wireTableModeToggle(toggleId, selectId, getMode, setMode, getTableNum, 
       render();
       if (onChange) onChange();
     });
-  });
-  select.addEventListener("change", () => {
-    setTableNum(Number(select.value));
-    if (onChange) onChange();
   });
 
   render();
@@ -309,13 +311,13 @@ function parseTableLabel(label) {
 }
 
 const renderOrderTableMode = wireTableModeToggle(
-  "orderModeToggle", "tableSelect",
+  "orderModeToggle", "tableGrid",
   () => orderMode, (m) => { orderMode = m; },
   () => orderTableNum, (n) => { orderTableNum = n; }
 );
 
 const renderOrderEditTableMode = wireTableModeToggle(
-  "orderEditModeToggle", "orderEditTableSelect",
+  "orderEditModeToggle", "orderEditTableGrid",
   () => editingOrderMode, (m) => { editingOrderMode = m; },
   () => editingOrderTableNum, (n) => { editingOrderTableNum = n; }
 );
@@ -913,7 +915,7 @@ function renderPhotoPreview() {
   }
 }
 
-function resizeImageFile(file, maxSize, quality) {
+function resizeImageFile(file, size, quality) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
@@ -921,13 +923,15 @@ function resizeImageFile(file, maxSize, quality) {
       const img = new Image();
       img.onerror = reject;
       img.onload = () => {
-        const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
-        const w = Math.max(1, Math.round(img.width * scale));
-        const h = Math.max(1, Math.round(img.height * scale));
+        // Center-crop to a square, then scale to `size` — keeps every photo
+        // a consistent square across the grid, table thumb, and preview.
+        const srcSize = Math.min(img.width, img.height);
+        const sx = (img.width - srcSize) / 2;
+        const sy = (img.height - srcSize) / 2;
         const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        canvas.width = size;
+        canvas.height = size;
+        canvas.getContext("2d").drawImage(img, sx, sy, srcSize, srcSize, 0, 0, size, size);
         resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.src = reader.result;

@@ -43,7 +43,7 @@
             <button type="button" class="mode-btn" data-mode="dinein">堂食</button>
             <button type="button" class="mode-btn" data-mode="takeout">外带</button>
           </div>
-          <select id="tableSelect" class="hidden"></select>
+          <div class="table-grid hidden" id="tableGrid"></div>
         </div>
         <div class="category-tabs" id="categoryTabs"></div>
         <div class="menu-grid" id="menuGrid"></div>
@@ -152,8 +152,10 @@
     <div class="form-row">
       <label>照片（可选）</label>
       <div id="itemPhotoPreviewWrap" class="photo-preview-wrap hidden">
-        <img id="itemPhotoPreview" class="photo-preview" alt="">
-        <button type="button" class="photo-remove-btn" id="itemPhotoRemoveBtn">删除照片</button>
+        <div class="photo-preview-frame">
+          <img id="itemPhotoPreview" class="photo-preview" alt="">
+          <button type="button" class="photo-remove-badge" id="itemPhotoRemoveBtn" aria-label="删除照片">×</button>
+        </div>
       </div>
       <input type="file" id="itemPhotoInput" accept="image/*">
     </div>
@@ -221,7 +223,7 @@
         <button type="button" class="mode-btn" data-mode="dinein">堂食</button>
         <button type="button" class="mode-btn" data-mode="takeout">外带</button>
       </div>
-      <select id="orderEditTableSelect" class="hidden"></select>
+      <div class="table-grid hidden" id="orderEditTableGrid"></div>
     </div>
     <div class="cart-items" id="orderEditItems"></div>
     <select id="orderEditItemPicker" class="hidden"></select>
