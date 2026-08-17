@@ -1020,11 +1020,14 @@ function openItemModal(item) {
 
 function renderPhotoPreview() {
   const wrap = $("#itemPhotoPreviewWrap");
+  const removeBtn = $("#itemPhotoRemoveBtn");
   if (editingPhoto) {
     wrap.classList.remove("hidden");
+    removeBtn.classList.remove("hidden");
     $("#itemPhotoPreview").src = editingPhoto;
   } else {
     wrap.classList.add("hidden");
+    removeBtn.classList.add("hidden");
   }
 }
 

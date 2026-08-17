@@ -279,18 +279,12 @@ tr.dragging { display: table-row; }
 #cropZoomSlider { width: 100%; }
 
 /* Photo upload (menu management) */
-.photo-preview-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-.photo-preview-frame { position: relative; width: 84px; height: 84px; flex: none; }
+.photo-preview-wrap { margin-bottom: 10px; }
 .photo-preview {
-  width: 84px; height: 84px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); display: block;
-  -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none; pointer-events: none;
+  width: 120px; height: 120px; object-fit: cover; border-radius: 12px; border: 1px solid var(--border); display: block;
+  -webkit-touch-callout: none; -webkit-user-drag: none; user-select: none;
 }
-.photo-remove-badge {
-  position: absolute; top: -10px; right: -10px; width: 34px; height: 34px; border-radius: 50%;
-  background: var(--danger); color: #fff; border: 2px solid var(--panel); font-size: 18px; font-weight: 800;
-  cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1; padding: 0;
-  z-index: 2; touch-action: manipulation; -webkit-tap-highlight-color: rgba(0,0,0,0.15);
-}
+#itemPhotoRemoveBtn { margin-bottom: 10px; }
 
 /* Required option groups (menu management editing) */
 .required-group-edit-list { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
