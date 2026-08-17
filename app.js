@@ -50,6 +50,19 @@ function loadData() {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (!parsed.openTabs) parsed.openTabs = {};
+      // The photo feature was removed after causing storage-quota issues;
+      // clear out any photo data left behind by earlier versions so users
+      // upgrading actually reclaim that space instead of just not adding more.
+      let hadPhotoData = false;
+      (parsed.menu || []).forEach((m) => {
+        if (m.photo || m.photoOriginal || m.photoCrop) {
+          delete m.photo;
+          delete m.photoOriginal;
+          delete m.photoCrop;
+          hadPhotoData = true;
+        }
+      });
+      if (hadPhotoData) saveData(parsed);
       return parsed;
     }
   } catch (e) { /* ignore corrupt data */ }
@@ -63,24 +76,6 @@ function saveData(data) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     return { ok: true };
   } catch (e) {
-    // Likely a full storage quota (iOS Safari's limit is much tighter than
-    // desktop browsers). Recover by dropping the bulky uncropped "original"
-    // photos kept only for non-destructive re-cropping — the actual menu
-    // photos, orders, and settings are unaffected — then retry once.
-    let reclaimed = false;
-    (data.menu || []).forEach((m) => {
-      if (m.photoOriginal) {
-        m.photoOriginal = null;
-        m.photoCrop = null;
-        reclaimed = true;
-      }
-    });
-    if (reclaimed) {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-        return { ok: true, droppedOriginals: true };
-      } catch (e2) { /* fall through to failure */ }
-    }
     return { ok: false };
   }
 }
@@ -94,10 +89,6 @@ let activeCategory = "全部";
 let editingItemId = null;
 let editingAddOns = []; // working copy of add-ons while item modal is open
 let editingRequiredGroups = []; // working copy of required option groups while item modal is open
-let editingPhoto = null; // working copy of photo dataURL while item modal is open
-let editingPhotoOriginal = null; // uncropped (but size-capped) source, so re-crop isn't lossy
-let editingPhotoCrop = null; // { ratioKey, zoom, offsetX, offsetY } used to produce editingPhoto
-let pendingOriginalPhoto = null; // set by a fresh file upload, consumed on crop confirm
 let noteTargetItem = null;
 let noteQty = 1;
 let noteSelectedAddOns = []; // add-ons selected while note modal is open
@@ -280,9 +271,7 @@ function renderMenuGrid() {
     btn.className = "menu-item";
     const hasAddOns = item.addOns && item.addOns.length > 0;
     const hasRequired = item.requiredGroups && item.requiredGroups.length > 0;
-    const photoHtml = item.photo ? `<img class="menu-item-photo" src="${item.photo}" alt="">` : "";
     btn.innerHTML = `
-      ${photoHtml}
       <span class="name">${escapeHtml(item.name)}${hasAddOns ? ' <span class="addon-badge">+加料</span>' : ""}${hasRequired ? ' <span class="addon-badge">必选</span>' : ""}</span>
       <span class="price">${fmt(item.price)}</span>
     `;
@@ -978,10 +967,8 @@ function renderMenuTable() {
   DB.menu.forEach((item) => {
     const tr = document.createElement("tr");
     tr.dataset.dragId = item.id;
-    const thumb = item.photo ? `<img class="menu-table-thumb" src="${item.photo}" alt="">` : "";
     tr.innerHTML = `
       <td><span class="drag-handle">⠿</span></td>
-      <td>${thumb}</td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(item.category)}</td>
       <td>${fmt(item.price)}</td>
@@ -1029,251 +1016,15 @@ function openItemModal(item) {
   editingRequiredGroups = item && item.requiredGroups
     ? item.requiredGroups.map((g) => ({ ...g, choices: g.choices.map((c) => ({ ...c })) }))
     : [];
-  editingPhoto = item && item.photo ? item.photo : null;
-  editingPhotoOriginal = item && item.photoOriginal ? item.photoOriginal : null;
-  editingPhotoCrop = item && item.photoCrop ? item.photoCrop : null;
   $("#itemModalTitle").textContent = item ? "编辑菜品" : "添加菜品";
   $("#itemNameInput").value = item ? item.name : "";
   $("#itemCategoryInput").value = item ? item.category : "";
   $("#itemPriceInput").value = item ? item.price : "";
-  $("#itemPhotoInput").value = "";
   $("#itemDeleteBtn").classList.toggle("hidden", !item);
-  renderPhotoPreview();
   renderRequiredGroupsEditList();
   renderAddOnEditList();
   $("#itemModal").classList.remove("hidden");
 }
-
-/* ---- Photo upload ---- */
-
-function renderPhotoPreview() {
-  const wrap = $("#itemPhotoPreviewWrap");
-  const removeBtn = $("#itemPhotoRemoveBtn");
-  const recropBtn = $("#itemPhotoRecropBtn");
-  if (editingPhoto) {
-    wrap.classList.remove("hidden");
-    removeBtn.classList.remove("hidden");
-    recropBtn.classList.remove("hidden");
-    $("#itemPhotoPreview").src = editingPhoto;
-  } else {
-    wrap.classList.add("hidden");
-    removeBtn.classList.add("hidden");
-    recropBtn.classList.add("hidden");
-    $("#itemPhotoPreview").src = ""; // don't leave stale image data behind the hidden wrapper
-  }
-}
-
-function loadImageFromFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = reject;
-      img.onload = () => resolve(img);
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-// Resize (but don't crop) to a capped max side, so we can keep an
-// uncropped "original" around for lossless re-cropping without storing
-// the full multi-megabyte camera photo in localStorage.
-function downsizeImage(img, maxSide, quality) {
-  const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
-  const w = Math.max(1, Math.round(img.naturalWidth * scale));
-  const h = Math.max(1, Math.round(img.naturalHeight * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL("image/jpeg", quality);
-}
-
-function loadImageFromDataUrl(dataUrl) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = dataUrl;
-  });
-}
-
-$("#itemPhotoInput").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  try {
-    const rawImg = await loadImageFromFile(file);
-    pendingOriginalPhoto = downsizeImage(rawImg, 900, 0.72);
-    const workingImg = await loadImageFromDataUrl(pendingOriginalPhoto);
-    openCropModal(workingImg);
-  } catch (err) {
-    alert("照片处理失败，请换一张试试");
-  }
-});
-
-$("#itemPhotoRemoveBtn").addEventListener("click", () => {
-  editingPhoto = null;
-  editingPhotoOriginal = null;
-  editingPhotoCrop = null;
-  $("#itemPhotoInput").value = "";
-  renderPhotoPreview();
-});
-
-$("#itemPhotoRecropBtn").addEventListener("click", async () => {
-  const source = editingPhotoOriginal || editingPhoto;
-  if (!source) return;
-  const img = await loadImageFromDataUrl(source);
-  openCropModal(img, editingPhotoCrop || undefined);
-});
-
-/* ---- Photo crop tool: drag to pan, slider to zoom, choice of aspect ratio ---- */
-
-const CROP_MAX_SIDE = 280; // longer side of the crop viewport, in CSS px
-const CROP_OUTPUT_LONG_SIDE = 400;
-const CROP_RATIOS = { "1:1": 1, "5:3": 5 / 3, "4:3": 4 / 3, "16:9": 16 / 9 };
-
-let cropImgEl = null;
-let cropNaturalW = 0, cropNaturalH = 0;
-let cropBaseScale = 1, cropZoom = 1;
-let cropOffsetX = 0, cropOffsetY = 0;
-let cropRatioKey = "5:3";
-let cropViewportW = CROP_MAX_SIDE, cropViewportH = CROP_MAX_SIDE;
-
-function updateCropViewportDims(key) {
-  cropRatioKey = key;
-  const ratio = CROP_RATIOS[key];
-  if (ratio >= 1) {
-    cropViewportW = CROP_MAX_SIDE;
-    cropViewportH = CROP_MAX_SIDE / ratio;
-  } else {
-    cropViewportH = CROP_MAX_SIDE;
-    cropViewportW = CROP_MAX_SIDE * ratio;
-  }
-  const viewport = $("#cropViewport");
-  viewport.style.width = `${cropViewportW}px`;
-  viewport.style.height = `${cropViewportH}px`;
-  $all("#cropRatioToggle .mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.ratio === key));
-}
-
-// User picked a ratio button — start that shape fresh (centered, no zoom).
-function setCropRatio(key) {
-  updateCropViewportDims(key);
-  if (cropNaturalW) {
-    cropBaseScale = Math.max(cropViewportW / cropNaturalW, cropViewportH / cropNaturalH);
-    cropZoom = 1;
-    $("#cropZoomSlider").value = 1;
-    cropOffsetX = 0;
-    cropOffsetY = 0;
-    applyCropTransform();
-  }
-}
-
-$all("#cropRatioToggle .mode-btn").forEach((b) => {
-  b.addEventListener("click", () => setCropRatio(b.dataset.ratio));
-});
-
-function openCropModal(img, restore) {
-  cropImgEl = $("#cropImg");
-  cropImgEl.src = img.src;
-  cropNaturalW = img.naturalWidth;
-  cropNaturalH = img.naturalHeight;
-  if (restore) {
-    updateCropViewportDims(restore.ratioKey);
-    cropBaseScale = Math.max(cropViewportW / cropNaturalW, cropViewportH / cropNaturalH);
-    cropZoom = restore.zoom;
-    cropOffsetX = restore.offsetX;
-    cropOffsetY = restore.offsetY;
-    $("#cropZoomSlider").value = cropZoom;
-    applyCropTransform();
-  } else {
-    setCropRatio(cropRatioKey);
-  }
-  $("#photoCropModal").classList.remove("hidden");
-}
-
-function clampCropOffsets() {
-  const scale = cropBaseScale * cropZoom;
-  const maxOffsetX = Math.max(0, (cropNaturalW * scale - cropViewportW) / 2);
-  const maxOffsetY = Math.max(0, (cropNaturalH * scale - cropViewportH) / 2);
-  cropOffsetX = Math.min(maxOffsetX, Math.max(-maxOffsetX, cropOffsetX));
-  cropOffsetY = Math.min(maxOffsetY, Math.max(-maxOffsetY, cropOffsetY));
-}
-
-function applyCropTransform() {
-  clampCropOffsets();
-  const scale = cropBaseScale * cropZoom;
-  const left = cropViewportW / 2 - (cropNaturalW * scale) / 2 + cropOffsetX;
-  const top = cropViewportH / 2 - (cropNaturalH * scale) / 2 + cropOffsetY;
-  cropImgEl.style.width = `${cropNaturalW * scale}px`;
-  cropImgEl.style.height = `${cropNaturalH * scale}px`;
-  cropImgEl.style.transform = `translate(${left}px, ${top}px)`;
-}
-
-$("#cropZoomSlider").addEventListener("input", (e) => {
-  cropZoom = Number(e.target.value);
-  applyCropTransform();
-});
-
-(() => {
-  const viewport = $("#cropViewport");
-  let dragging = false;
-  let startX = 0, startY = 0, startOffsetX = 0, startOffsetY = 0;
-
-  viewport.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    startX = e.clientX;
-    startY = e.clientY;
-    startOffsetX = cropOffsetX;
-    startOffsetY = cropOffsetY;
-    try { viewport.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-  });
-  viewport.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    cropOffsetX = startOffsetX + (e.clientX - startX);
-    cropOffsetY = startOffsetY + (e.clientY - startY);
-    applyCropTransform();
-  });
-  const endDrag = () => { dragging = false; };
-  viewport.addEventListener("pointerup", endDrag);
-  viewport.addEventListener("pointercancel", endDrag);
-})();
-
-$("#cropCancelBtn").addEventListener("click", () => {
-  pendingOriginalPhoto = null;
-  $("#photoCropModal").classList.add("hidden");
-  $("#itemPhotoInput").value = "";
-});
-
-$("#cropConfirmBtn").addEventListener("click", () => {
-  const scale = cropBaseScale * cropZoom;
-  const imgLeftCss = cropViewportW / 2 - (cropNaturalW * scale) / 2 + cropOffsetX;
-  const imgTopCss = cropViewportH / 2 - (cropNaturalH * scale) / 2 + cropOffsetY;
-  const sx = -imgLeftCss / scale;
-  const sy = -imgTopCss / scale;
-  const sW = cropViewportW / scale;
-  const sH = cropViewportH / scale;
-
-  const ratio = CROP_RATIOS[cropRatioKey];
-  const outW = ratio >= 1 ? CROP_OUTPUT_LONG_SIDE : Math.round(CROP_OUTPUT_LONG_SIDE * ratio);
-  const outH = ratio >= 1 ? Math.round(CROP_OUTPUT_LONG_SIDE / ratio) : CROP_OUTPUT_LONG_SIDE;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = outW;
-  canvas.height = outH;
-  canvas.getContext("2d").drawImage(cropImgEl, sx, sy, sW, sH, 0, 0, outW, outH);
-  editingPhoto = canvas.toDataURL("image/jpeg", 0.75);
-  if (pendingOriginalPhoto) {
-    editingPhotoOriginal = pendingOriginalPhoto;
-    pendingOriginalPhoto = null;
-  }
-  editingPhotoCrop = { ratioKey: cropRatioKey, zoom: cropZoom, offsetX: cropOffsetX, offsetY: cropOffsetY };
-  renderPhotoPreview();
-
-  $("#photoCropModal").classList.add("hidden");
-  $("#itemPhotoInput").value = "";
-});
 
 /* ---- Required option groups editing ---- */
 
@@ -1388,22 +1139,16 @@ $("#itemSaveBtn").addEventListener("click", () => {
         .filter((c) => c.name),
     }))
     .filter((g) => g.name && g.choices.length > 0);
-  const photo = editingPhoto;
-  const photoOriginal = editingPhotoOriginal;
-  const photoCrop = editingPhotoCrop;
   if (editingItemId) {
     const item = DB.menu.find((m) => m.id === editingItemId);
-    Object.assign(item, { name, category, price, addOns, requiredGroups, photo, photoOriginal, photoCrop });
+    Object.assign(item, { name, category, price, addOns, requiredGroups });
   } else {
-    DB.menu.push({ id: uid(), name, category, price, addOns, requiredGroups, photo, photoOriginal, photoCrop });
+    DB.menu.push({ id: uid(), name, category, price, addOns, requiredGroups });
   }
   const result = saveData(DB);
   if (!result.ok) {
-    alert("保存失败：设备本地存储空间不够了。建议：设置里导出一份备份，然后用\"清空订单记录\"腾出空间，或者减少菜品照片数量。");
+    alert("保存失败：设备本地存储空间不够了。建议：设置里导出一份备份，然后用\"清空订单记录\"腾出空间。");
     return;
-  }
-  if (result.droppedOriginals) {
-    alert("存储空间紧张，已保存这次修改，但为了腾出空间清除了所有菜品的\"重新裁剪原图\"数据（菜品照片本身没有受影响，只是以后重新裁剪要重新选文件了）。建议去设置里导出一份备份。");
   }
   $("#itemModal").classList.add("hidden");
   renderMenuTable();
