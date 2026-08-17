@@ -59,7 +59,30 @@ function loadData() {
 }
 
 function saveData(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return { ok: true };
+  } catch (e) {
+    // Likely a full storage quota (iOS Safari's limit is much tighter than
+    // desktop browsers). Recover by dropping the bulky uncropped "original"
+    // photos kept only for non-destructive re-cropping — the actual menu
+    // photos, orders, and settings are unaffected — then retry once.
+    let reclaimed = false;
+    (data.menu || []).forEach((m) => {
+      if (m.photoOriginal) {
+        m.photoOriginal = null;
+        m.photoCrop = null;
+        reclaimed = true;
+      }
+    });
+    if (reclaimed) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        return { ok: true, droppedOriginals: true };
+      } catch (e2) { /* fall through to failure */ }
+    }
+    return { ok: false };
+  }
 }
 
 let DB = loadData();
@@ -1082,7 +1105,7 @@ $("#itemPhotoInput").addEventListener("change", async (e) => {
   if (!file) return;
   try {
     const rawImg = await loadImageFromFile(file);
-    pendingOriginalPhoto = downsizeImage(rawImg, 1200, 0.85);
+    pendingOriginalPhoto = downsizeImage(rawImg, 900, 0.72);
     const workingImg = await loadImageFromDataUrl(pendingOriginalPhoto);
     openCropModal(workingImg);
   } catch (err) {
@@ -1374,7 +1397,14 @@ $("#itemSaveBtn").addEventListener("click", () => {
   } else {
     DB.menu.push({ id: uid(), name, category, price, addOns, requiredGroups, photo, photoOriginal, photoCrop });
   }
-  saveData(DB);
+  const result = saveData(DB);
+  if (!result.ok) {
+    alert("保存失败：设备本地存储空间不够了。建议：设置里导出一份备份，然后用\"清空订单记录\"腾出空间，或者减少菜品照片数量。");
+    return;
+  }
+  if (result.droppedOriginals) {
+    alert("存储空间紧张，已保存这次修改，但为了腾出空间清除了所有菜品的\"重新裁剪原图\"数据（菜品照片本身没有受影响，只是以后重新裁剪要重新选文件了）。建议去设置里导出一份备份。");
+  }
   $("#itemModal").classList.add("hidden");
   renderMenuTable();
   renderCategoryTabs();
