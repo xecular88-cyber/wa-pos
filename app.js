@@ -88,6 +88,9 @@ let editingOrderTableNum = 1;
 
 let noteModalContext = "cart"; // 'cart' | 'orderEdit' — where "加入订单" should push the line
 
+let checkoutPaymentMethod = "cash"; // 'cash' | 'tng', for the checkout modal
+let editingOrderPaymentMethod = "cash"; // same, for the order-edit modal
+
 /* ---------- Helpers ---------- */
 
 const $ = (sel) => document.querySelector(sel);
@@ -351,6 +354,33 @@ const renderOrderEditTableMode = wireTableModeToggle(
   () => editingOrderTableNum, (n) => { editingOrderTableNum = n; }
 );
 
+const renderOrderEditPayment = wirePaymentToggle(
+  "orderEditPaymentToggle",
+  () => editingOrderPaymentMethod, (m) => { editingOrderPaymentMethod = m; }
+);
+
+/* ---------- Payment method toggle (Cash / Touch 'n Go) ---------- */
+
+function wirePaymentToggle(toggleId, getMethod, setMethod, onChange) {
+  const toggle = $(`#${toggleId}`);
+  function render() {
+    toggle.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.method === getMethod()));
+  }
+  toggle.querySelectorAll(".mode-btn").forEach((b) => {
+    b.addEventListener("click", () => {
+      setMethod(b.dataset.method);
+      render();
+      if (onChange) onChange();
+    });
+  });
+  render();
+  return render;
+}
+
+function paymentMethodLabel(method) {
+  return method === "tng" ? "Touch 'n Go" : "Cash";
+}
+
 /* ---------- Note / quantity modal ---------- */
 
 function openNoteModal(item, context) {
@@ -602,14 +632,45 @@ function openReceiptPreview() {
   html += `<div class="receipt-line receipt-total"><span>总计</span><span>${fmt(t.total)}</span></div>`;
 
   $("#receiptView").innerHTML = html;
+  checkoutPaymentMethod = "cash";
+  renderPaymentToggle();
+  $("#cashGivenWrap").classList.remove("hidden");
+  $("#cashGivenInput").value = "";
+  updateChangeDue();
   $("#checkoutModal").classList.remove("hidden");
 }
+
+const renderPaymentToggle = wirePaymentToggle(
+  "paymentMethodToggle",
+  () => checkoutPaymentMethod, (m) => { checkoutPaymentMethod = m; },
+  () => {
+    $("#cashGivenWrap").classList.toggle("hidden", checkoutPaymentMethod !== "cash");
+    updateChangeDue();
+  }
+);
+
+function updateChangeDue() {
+  const t = computeTotals();
+  const given = Number($("#cashGivenInput").value) || 0;
+  const change = given - t.total;
+  const el = $("#changeDueDisplay");
+  if (!$("#cashGivenInput").value) {
+    el.textContent = "";
+    el.className = "change-due";
+    return;
+  }
+  el.className = "change-due " + (change < 0 ? "negative" : "positive");
+  el.textContent = change < 0 ? `还差 ${fmt(-change)}` : `找零 ${fmt(change)}`;
+}
+
+$("#cashGivenInput").addEventListener("input", updateChangeDue);
 
 $("#checkoutCancelBtn").addEventListener("click", () => $("#checkoutModal").classList.add("hidden"));
 
 $("#confirmPayBtn").addEventListener("click", () => {
   const t = computeTotals();
   const table = currentTableLabel(orderMode, orderTableNum);
+  const cashGiven = checkoutPaymentMethod === "cash" ? Number($("#cashGivenInput").value) || 0 : null;
   const order = {
     id: uid(),
     createdAt: new Date().toISOString(),
@@ -623,6 +684,9 @@ $("#confirmPayBtn").addEventListener("click", () => {
     taxRate: t.taxRate,
     tax: t.tax,
     total: t.total,
+    paymentMethod: checkoutPaymentMethod,
+    cashGiven,
+    changeDue: cashGiven != null ? cashGiven - t.total : null,
   };
   DB.orders.unshift(order);
   saveData(DB);
@@ -679,9 +743,10 @@ function renderOrders() {
   dayOrders.forEach((o) => {
     const div = document.createElement("div");
     div.className = "order-card";
+    const paymentLabel = o.paymentMethod ? paymentMethodLabel(o.paymentMethod) : "未记录";
     div.innerHTML = `
       <div class="order-card-top"><span>桌号 ${escapeHtml(o.table)}</span><span>${fmt(o.total)}</span></div>
-      <div class="order-card-meta">${new Date(o.createdAt).toLocaleString()}</div>
+      <div class="order-card-meta">${new Date(o.createdAt).toLocaleString()} ・ ${escapeHtml(paymentLabel)}</div>
       <div class="order-card-items">${escapeHtml(orderItemsSummary(o))}</div>
       <div class="order-card-actions"><button data-act="edit">编辑订单</button></div>
     `;
@@ -690,21 +755,20 @@ function renderOrders() {
   });
 }
 
-$("#printSettlementBtn").addEventListener("click", () => {
-  const dayOrders = ordersOnDate(selectedOrdersDate);
-  const dayTotal = dayOrders.reduce((s, o) => s + o.total, 0);
-  const daySubtotal = dayOrders.reduce((s, o) => s + o.subtotal, 0);
-  const dayTax = dayOrders.reduce((s, o) => s + o.tax, 0);
+function renderSettlementSection(sectionTitle, orders, pageBreakAfter) {
+  const total = orders.reduce((s, o) => s + o.total, 0);
+  const subtotal = orders.reduce((s, o) => s + o.subtotal, 0);
+  const tax = orders.reduce((s, o) => s + o.tax, 0);
 
   let html = `
     <h2>${escapeHtml(DB.settings.restaurantName)}</h2>
-    <div class="print-sub">每日结算报告 ・ ${escapeHtml(selectedOrdersDate)}</div>
+    <div class="print-sub">每日结算报告 ・ ${escapeHtml(selectedOrdersDate)} ・ ${escapeHtml(sectionTitle)}</div>
     <div class="print-divider"></div>
   `;
-  if (dayOrders.length === 0) {
-    html += `<div class="print-line"><span>这一天没有订单记录</span></div>`;
+  if (orders.length === 0) {
+    html += `<div class="print-line"><span>这一天没有此类记录</span></div>`;
   } else {
-    dayOrders.forEach((o, i) => {
+    orders.forEach((o, i) => {
       html += `<div class="print-line" style="font-weight:700;"><span>订单 ${i + 1} ・ 桌号 ${escapeHtml(o.table)} ・ ${new Date(o.createdAt).toLocaleTimeString()}</span><span>${fmt(o.total)}</span></div>`;
       o.items.forEach((it) => {
         const requiredStr = (it.requiredChoices || []).map((c) => c.choiceName).join("+");
@@ -716,14 +780,30 @@ $("#printSettlementBtn").addEventListener("click", () => {
         html += `<div class="print-line"><span>　折扣 (${o.discountPct}%)</span><span>-${fmt(o.subtotal * (o.discountPct / 100))}</span></div>`;
       }
       html += `<div class="print-line"><span>　税 (${o.taxRate || 0}%)</span><span>${fmt(o.tax)}</span></div>`;
+      if (o.paymentMethod === "cash" && o.cashGiven != null) {
+        html += `<div class="print-line"><span>　客户给款 / 找零</span><span>${fmt(o.cashGiven)} / ${fmt(o.changeDue)}</span></div>`;
+      }
     });
     html += `<div class="print-divider"></div>`;
-    html += `<div class="print-line"><span>订单数</span><span>${dayOrders.length}</span></div>`;
-    html += `<div class="print-line"><span>小计合计</span><span>${fmt(daySubtotal)}</span></div>`;
-    html += `<div class="print-line"><span>税额合计</span><span>${fmt(dayTax)}</span></div>`;
+    html += `<div class="print-line"><span>订单数</span><span>${orders.length}</span></div>`;
+    html += `<div class="print-line"><span>小计合计</span><span>${fmt(subtotal)}</span></div>`;
+    html += `<div class="print-line"><span>税额合计</span><span>${fmt(tax)}</span></div>`;
     html += `<div class="print-divider"></div>`;
-    html += `<div class="print-line print-total"><span>营业额合计</span><span>${fmt(dayTotal)}</span></div>`;
+    html += `<div class="print-line print-total"><span>${escapeHtml(sectionTitle)}营业额合计</span><span>${fmt(total)}</span></div>`;
   }
+  if (pageBreakAfter) html += `<div class="print-page-break"></div>`;
+  return html;
+}
+
+$("#printSettlementBtn").addEventListener("click", () => {
+  const dayOrders = ordersOnDate(selectedOrdersDate);
+  // Orders from before payment-method tracking existed default to Cash.
+  const cashOrders = dayOrders.filter((o) => (o.paymentMethod || "cash") === "cash");
+  const tngOrders = dayOrders.filter((o) => o.paymentMethod === "tng");
+
+  let html = renderSettlementSection("Cash", cashOrders, true);
+  html += renderSettlementSection("Touch 'n Go", tngOrders, false);
+
   $("#printSettlementView").innerHTML = html;
   window.print();
 });
@@ -737,6 +817,8 @@ function openOrderEditModal(order) {
   editingOrderMode = parsed.mode;
   editingOrderTableNum = parsed.tableNum;
   renderOrderEditTableMode();
+  editingOrderPaymentMethod = order.paymentMethod || "cash";
+  renderOrderEditPayment();
   $("#orderEditDiscount").value = order.discountPct || 0;
   $("#orderEditItemPicker").classList.add("hidden");
   renderOrderEditItems();
@@ -847,6 +929,7 @@ $("#orderEditSaveBtn").addEventListener("click", () => {
   if (!order) return;
   const t = orderEditTotals();
   order.table = currentTableLabel(editingOrderMode, editingOrderTableNum);
+  order.paymentMethod = editingOrderPaymentMethod;
   order.items = editingOrderItems.map((l) => ({
     name: l.name, price: l.price, qty: l.qty, note: l.note,
     addOns: l.addOns || [], requiredChoices: l.requiredChoices || [],

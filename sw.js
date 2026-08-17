@@ -1,4 +1,4 @@
-const CACHE = "pos-cache-v2";
+const CACHE = "pos-cache-v3";
 const ASSETS = ["./", "index.html", "styles.css", "app.js", "manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -15,7 +15,12 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   e.respondWith(
-    fetch(e.request)
+    // { cache: "no-store" } bypasses the browser's own HTTP cache, not just
+    // this service worker's cache — GitHub Pages serves app.js/styles.css
+    // with Cache-Control: max-age=600, so without this a plain fetch() can
+    // silently return a stale response for up to 10 minutes even though
+    // this handler is otherwise "network-first".
+    fetch(e.request, { cache: "no-store" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
