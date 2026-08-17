@@ -1229,6 +1229,55 @@ $("#saveSettingsBtn").addEventListener("click", () => {
   alert("设置已保存");
 });
 
+$("#exportDataBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(DB, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  a.href = url;
+  a.download = `pos-backup-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+
+$("#importDataBtn").addEventListener("click", () => $("#importDataInput").click());
+
+$("#importDataInput").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch (err) {
+      alert("这个文件不是有效的备份文件（JSON 格式错误）");
+      e.target.value = "";
+      return;
+    }
+    if (!parsed || !Array.isArray(parsed.menu) || !Array.isArray(parsed.orders) || !parsed.settings) {
+      alert("这个文件看起来不是本系统的备份文件");
+      e.target.value = "";
+      return;
+    }
+    if (!confirm(`将用备份文件覆盖当前所有数据（菜单 ${parsed.menu.length} 项，订单 ${parsed.orders.length} 条）。确定继续？`)) {
+      e.target.value = "";
+      return;
+    }
+    if (!parsed.openTabs) parsed.openTabs = {};
+    DB = parsed;
+    saveData(DB);
+    cart = [];
+    activeCategory = "全部";
+    initApp();
+    e.target.value = "";
+    alert("恢复完成");
+  };
+  reader.readAsText(file);
+});
+
 $("#clearOrdersBtn").addEventListener("click", () => {
   if (!confirm("将清空所有订单记录（菜单、加料、必选选项、照片都会保留）。确定继续？")) return;
   DB.orders = [];

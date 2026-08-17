@@ -126,6 +126,11 @@
       </div>
       <button class="primary-btn" id="saveSettingsBtn">保存设置</button>
       <hr>
+      <button class="primary-btn" id="exportDataBtn">导出备份（下载文件）</button>
+      <p class="feedback-hint">建议定期导出保存一份，尤其是在删除主屏幕图标、换设备、或重新安装 App 之前——本地数据万一丢失，可以用备份文件恢复。</p>
+      <input type="file" id="importDataInput" accept="application/json" class="hidden">
+      <button class="ghost-btn" id="importDataBtn">导入恢复（选择备份文件）</button>
+      <hr>
       <button class="danger-btn" id="clearOrdersBtn">清空订单记录（保留菜单设置）</button>
       <hr>
       <button class="danger-btn" id="resetDataBtn">重置所有数据（恢复演示数据）</button>

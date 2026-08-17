@@ -214,6 +214,8 @@ tr.dragging { display: table-row; }
   background: var(--bg);
 }
 
+.feedback-hint { color: var(--ink-soft); font-size: 13.5px; line-height: 1.6; margin: 8px 0; }
+
 /* Modals */
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,.4);
