@@ -1059,33 +1059,60 @@ $("#itemPhotoRemoveBtn").addEventListener("click", () => {
   renderPhotoPreview();
 });
 
-/* ---- Photo crop tool: drag to pan, slider to zoom, always a square crop ---- */
+/* ---- Photo crop tool: drag to pan, slider to zoom, choice of aspect ratio ---- */
 
-const CROP_VIEWPORT = 260;
-const CROP_OUTPUT_SIZE = 320;
+const CROP_MAX_SIDE = 280; // longer side of the crop viewport, in CSS px
+const CROP_OUTPUT_LONG_SIDE = 400;
+const CROP_RATIOS = { "1:1": 1, "5:3": 5 / 3, "4:3": 4 / 3, "16:9": 16 / 9 };
+
 let cropImgEl = null;
 let cropNaturalW = 0, cropNaturalH = 0;
 let cropBaseScale = 1, cropZoom = 1;
 let cropOffsetX = 0, cropOffsetY = 0;
+let cropRatioKey = "5:3";
+let cropViewportW = CROP_MAX_SIDE, cropViewportH = CROP_MAX_SIDE;
+
+function setCropRatio(key) {
+  cropRatioKey = key;
+  const ratio = CROP_RATIOS[key];
+  if (ratio >= 1) {
+    cropViewportW = CROP_MAX_SIDE;
+    cropViewportH = CROP_MAX_SIDE / ratio;
+  } else {
+    cropViewportH = CROP_MAX_SIDE;
+    cropViewportW = CROP_MAX_SIDE * ratio;
+  }
+  const viewport = $("#cropViewport");
+  viewport.style.width = `${cropViewportW}px`;
+  viewport.style.height = `${cropViewportH}px`;
+  $all("#cropRatioToggle .mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.ratio === key));
+  if (cropNaturalW) {
+    cropBaseScale = Math.max(cropViewportW / cropNaturalW, cropViewportH / cropNaturalH);
+    cropOffsetX = 0;
+    cropOffsetY = 0;
+    applyCropTransform();
+  }
+}
+
+$all("#cropRatioToggle .mode-btn").forEach((b) => {
+  b.addEventListener("click", () => setCropRatio(b.dataset.ratio));
+});
 
 function openCropModal(img) {
   cropImgEl = $("#cropImg");
   cropImgEl.src = img.src;
   cropNaturalW = img.naturalWidth;
   cropNaturalH = img.naturalHeight;
-  cropBaseScale = CROP_VIEWPORT / Math.min(cropNaturalW, cropNaturalH);
   cropZoom = 1;
-  cropOffsetX = 0;
-  cropOffsetY = 0;
   $("#cropZoomSlider").value = 1;
-  applyCropTransform();
+  setCropRatio(cropRatioKey);
   $("#photoCropModal").classList.remove("hidden");
 }
 
 function clampCropOffsets() {
   const scale = cropBaseScale * cropZoom;
-  const maxOffsetX = Math.max(0, (cropNaturalW * scale - CROP_VIEWPORT) / 2);
-  const maxOffsetY = Math.max(0, (cropNaturalH * scale - CROP_VIEWPORT) / 2);
+  const maxOffsetX = Math.max(0, (cropNaturalW * scale - cropViewportW) / 2);
+  const maxOffsetY = Math.max(0, (cropNaturalH * scale - cropViewportH) / 2);
   cropOffsetX = Math.min(maxOffsetX, Math.max(-maxOffsetX, cropOffsetX));
   cropOffsetY = Math.min(maxOffsetY, Math.max(-maxOffsetY, cropOffsetY));
 }
@@ -1093,8 +1120,8 @@ function clampCropOffsets() {
 function applyCropTransform() {
   clampCropOffsets();
   const scale = cropBaseScale * cropZoom;
-  const left = CROP_VIEWPORT / 2 - (cropNaturalW * scale) / 2 + cropOffsetX;
-  const top = CROP_VIEWPORT / 2 - (cropNaturalH * scale) / 2 + cropOffsetY;
+  const left = cropViewportW / 2 - (cropNaturalW * scale) / 2 + cropOffsetX;
+  const top = cropViewportH / 2 - (cropNaturalH * scale) / 2 + cropOffsetY;
   cropImgEl.style.width = `${cropNaturalW * scale}px`;
   cropImgEl.style.height = `${cropNaturalH * scale}px`;
   cropImgEl.style.transform = `translate(${left}px, ${top}px)`;
@@ -1136,16 +1163,21 @@ $("#cropCancelBtn").addEventListener("click", () => {
 
 $("#cropConfirmBtn").addEventListener("click", () => {
   const scale = cropBaseScale * cropZoom;
-  const imgLeftCss = CROP_VIEWPORT / 2 - (cropNaturalW * scale) / 2 + cropOffsetX;
-  const imgTopCss = CROP_VIEWPORT / 2 - (cropNaturalH * scale) / 2 + cropOffsetY;
+  const imgLeftCss = cropViewportW / 2 - (cropNaturalW * scale) / 2 + cropOffsetX;
+  const imgTopCss = cropViewportH / 2 - (cropNaturalH * scale) / 2 + cropOffsetY;
   const sx = -imgLeftCss / scale;
   const sy = -imgTopCss / scale;
-  const sSize = CROP_VIEWPORT / scale;
+  const sW = cropViewportW / scale;
+  const sH = cropViewportH / scale;
+
+  const ratio = CROP_RATIOS[cropRatioKey];
+  const outW = ratio >= 1 ? CROP_OUTPUT_LONG_SIDE : Math.round(CROP_OUTPUT_LONG_SIDE * ratio);
+  const outH = ratio >= 1 ? Math.round(CROP_OUTPUT_LONG_SIDE / ratio) : CROP_OUTPUT_LONG_SIDE;
 
   const canvas = document.createElement("canvas");
-  canvas.width = CROP_OUTPUT_SIZE;
-  canvas.height = CROP_OUTPUT_SIZE;
-  canvas.getContext("2d").drawImage(cropImgEl, sx, sy, sSize, sSize, 0, 0, CROP_OUTPUT_SIZE, CROP_OUTPUT_SIZE);
+  canvas.width = outW;
+  canvas.height = outH;
+  canvas.getContext("2d").drawImage(cropImgEl, sx, sy, sW, sH, 0, 0, outW, outH);
   editingPhoto = canvas.toDataURL("image/jpeg", 0.75);
   renderPhotoPreview();
 

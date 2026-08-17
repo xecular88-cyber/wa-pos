@@ -233,8 +233,16 @@
 <div class="modal-backdrop hidden" id="photoCropModal">
   <div class="modal">
     <h3>调整照片</h3>
-    <div class="crop-viewport" id="cropViewport">
-      <img id="cropImg" alt="">
+    <div class="mode-toggle crop-ratio-toggle" id="cropRatioToggle">
+      <button type="button" class="mode-btn" data-ratio="1:1">1:1</button>
+      <button type="button" class="mode-btn" data-ratio="5:3">5:3</button>
+      <button type="button" class="mode-btn" data-ratio="4:3">4:3</button>
+      <button type="button" class="mode-btn" data-ratio="16:9">16:9</button>
+    </div>
+    <div class="crop-viewport-wrap">
+      <div class="crop-viewport" id="cropViewport">
+        <img id="cropImg" alt="">
+      </div>
     </div>
     <div class="form-row">
       <label>大小</label>
