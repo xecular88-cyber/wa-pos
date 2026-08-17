@@ -1021,13 +1021,17 @@ function openItemModal(item) {
 function renderPhotoPreview() {
   const wrap = $("#itemPhotoPreviewWrap");
   const removeBtn = $("#itemPhotoRemoveBtn");
+  const recropBtn = $("#itemPhotoRecropBtn");
   if (editingPhoto) {
     wrap.classList.remove("hidden");
     removeBtn.classList.remove("hidden");
+    recropBtn.classList.remove("hidden");
     $("#itemPhotoPreview").src = editingPhoto;
   } else {
     wrap.classList.add("hidden");
     removeBtn.classList.add("hidden");
+    recropBtn.classList.add("hidden");
+    $("#itemPhotoPreview").src = ""; // don't leave stale image data behind the hidden wrapper
   }
 }
 
@@ -1060,6 +1064,13 @@ $("#itemPhotoRemoveBtn").addEventListener("click", () => {
   editingPhoto = null;
   $("#itemPhotoInput").value = "";
   renderPhotoPreview();
+});
+
+$("#itemPhotoRecropBtn").addEventListener("click", () => {
+  if (!editingPhoto) return;
+  const img = new Image();
+  img.onload = () => openCropModal(img);
+  img.src = editingPhoto;
 });
 
 /* ---- Photo crop tool: drag to pan, slider to zoom, choice of aspect ratio ---- */
