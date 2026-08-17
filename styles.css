@@ -223,7 +223,7 @@ tr.dragging { display: table-row; }
   position: fixed; inset: 0; background: rgba(0,0,0,.4);
   display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
 }
-#noteModal.modal-backdrop { z-index: 60; }
+#noteModal.modal-backdrop, #photoCropModal.modal-backdrop { z-index: 60; }
 .modal-backdrop.hidden { display: none; }
 .modal {
   background: var(--panel); border-radius: 18px; padding: 22px; width: 100%; max-width: 380px;
@@ -262,6 +262,19 @@ tr.dragging { display: table-row; }
   border: none; background: none; color: var(--danger); font-size: 18px; font-weight: 700; cursor: pointer; padding: 0 6px;
 }
 .ghost-btn.small { padding: 7px 14px; font-size: 13.5px; margin-top: 8px; }
+
+/* Photo crop tool */
+.crop-viewport {
+  width: 260px; height: 260px; margin: 0 auto; border-radius: 12px;
+  overflow: hidden; position: relative; background: #000; touch-action: none;
+  border: 1px solid var(--border);
+}
+.crop-viewport img {
+  position: absolute; top: 0; left: 0; transform-origin: top left; cursor: grab;
+  user-select: none; -webkit-user-drag: none;
+}
+.crop-viewport img:active { cursor: grabbing; }
+#cropZoomSlider { width: 100%; }
 
 /* Photo upload (menu management) */
 .photo-preview-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
