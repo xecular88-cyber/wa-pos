@@ -1092,6 +1092,7 @@ function renderMenuTable() {
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(item.category)}</td>
       <td>${fmt(item.price)}</td>
+      <td>${fmt(effectivePrice(item, "delivery"))}${item.deliveryPriceOverride != null ? ' <span class="addon-badge">自定</span>' : ""}</td>
       <td><div class="row-actions"><button data-act="edit">编辑</button><button data-act="dup">复制</button></div></td>
     `;
     tr.querySelector('[data-act="edit"]').addEventListener("click", () => openItemModal(item));
