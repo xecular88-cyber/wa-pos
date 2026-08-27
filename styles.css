@@ -53,6 +53,12 @@ html, body {
 .view { flex: 1; overflow: hidden; }
 .view.hidden { display: none; }
 
+/* Generic hidden utility — used well beyond .view/.modal-backdrop (payment
+   toggles, delivery field groups, add-ons sections, etc). Kept low-specificity
+   (single class) so it stays easy to override when an element needs a
+   non-default display value while visible. */
+.hidden { display: none !important; }
+
 /* ORDER LAYOUT */
 .order-layout { display: flex; height: 100%; }
 .menu-pane { flex: 1; display: flex; flex-direction: column; padding: 16px; overflow: hidden; }

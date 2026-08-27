@@ -3,7 +3,10 @@
 const STORAGE_KEY = "pos_data_v1";
 
 const DEMO_DATA = {
-  settings: { restaurantName: "我的餐厅", taxRate: 0, currency: "$", tableCount: 12 },
+  settings: {
+    restaurantName: "我的餐厅", taxRate: 0, currency: "$", tableCount: 12,
+    deliveryMarkupPct: 15, deliveryDefaultCommissionPct: 30,
+  },
   menu: [
     { id: "m1", name: "招牌炒饭", category: "主食", price: 12.5, addOns: [
       { id: "a1", name: "加蛋", price: 1 },
@@ -273,7 +276,7 @@ function renderMenuGrid() {
     const hasRequired = item.requiredGroups && item.requiredGroups.length > 0;
     btn.innerHTML = `
       <span class="name">${escapeHtml(item.name)}${hasAddOns ? ' <span class="addon-badge">+加料</span>' : ""}${hasRequired ? ' <span class="addon-badge">必选</span>' : ""}</span>
-      <span class="price">${fmt(item.price)}</span>
+      <span class="price">${fmt(effectivePrice(item, orderMode))}</span>
     `;
     btn.addEventListener("click", () => openNoteModal(item));
     grid.appendChild(btn);
@@ -324,15 +327,28 @@ function wireTableModeToggle(toggleId, gridId, getMode, setMode, getTableNum, se
 }
 
 function currentTableLabel(mode, tableNum) {
-  return mode === "dinein" ? `桌 ${tableNum}` : `外带 #${tableNum}`;
+  if (mode === "dinein") return `桌 ${tableNum}`;
+  if (mode === "delivery") return `外卖 #${tableNum}`;
+  return `外带 #${tableNum}`;
 }
 
 function parseTableLabel(label) {
   let m = /^桌\s*(\d+)$/.exec(label || "");
   if (m) return { mode: "dinein", tableNum: Number(m[1]) };
+  m = /^外卖\s*#?(\d+)$/.exec(label || "");
+  if (m) return { mode: "delivery", tableNum: Number(m[1]) };
   m = /^外带\s*#?(\d+)$/.exec(label || "");
   if (m) return { mode: "takeout", tableNum: Number(m[1]) };
   return { mode: "takeout", tableNum: 1 }; // legacy orders just labeled "外带"
+}
+
+// Effective selling price for an item under a given order mode — delivery
+// uses a per-item override if set, otherwise the global markup percentage.
+function effectivePrice(item, mode) {
+  if (mode !== "delivery") return item.price;
+  if (item.deliveryPriceOverride != null) return item.deliveryPriceOverride;
+  const pct = DB.settings.deliveryMarkupPct || 0;
+  return item.price * (1 + pct / 100);
 }
 
 /* ---------- Per-table open orders ---------- */
@@ -360,14 +376,26 @@ const renderOrderTableMode = wireTableModeToggle(
   "orderModeToggle", "tableGrid",
   () => orderMode, (m) => { orderMode = m; },
   () => orderTableNum, (n) => { orderTableNum = n; },
-  loadCartForCurrentTable
+  () => { loadCartForCurrentTable(); renderMenuGrid(); }
 );
 
 const renderOrderEditTableMode = wireTableModeToggle(
   "orderEditModeToggle", "orderEditTableGrid",
   () => editingOrderMode, (m) => { editingOrderMode = m; },
-  () => editingOrderTableNum, (n) => { editingOrderTableNum = n; }
+  () => editingOrderTableNum, (n) => { editingOrderTableNum = n; },
+  updateOrderEditModeFields
 );
+
+function updateOrderEditModeFields() {
+  const isDelivery = editingOrderMode === "delivery";
+  $("#orderEditDeliveryFieldsWrap").classList.toggle("hidden", !isDelivery);
+  $("#orderEditPaymentWrap").classList.toggle("hidden", isDelivery);
+  if (isDelivery) {
+    if (!$("#orderEditDeliveryPlatformInput").value) $("#orderEditDeliveryPlatformInput").value = "Grab";
+    if (!$("#orderEditDeliveryCommissionInput").value) $("#orderEditDeliveryCommissionInput").value = DB.settings.deliveryDefaultCommissionPct || 0;
+    updateOrderEditDeliveryNet();
+  }
+}
 
 const renderOrderEditPayment = wirePaymentToggle(
   "orderEditPaymentToggle",
@@ -394,6 +422,11 @@ function wirePaymentToggle(toggleId, getMethod, setMethod, onChange) {
 
 function paymentMethodLabel(method) {
   return method === "tng" ? "Touch 'n Go" : "Cash";
+}
+
+function orderPaymentLabel(o) {
+  if (o.paymentMethod === "platform") return o.deliveryPlatform || "外卖";
+  return o.paymentMethod ? paymentMethodLabel(o.paymentMethod) : "未记录";
 }
 
 /* ---------- Note / quantity modal ---------- */
@@ -507,15 +540,17 @@ $("#noteAddBtn").addEventListener("click", () => {
     priceDelta: noteSelectedRequired[g.id].priceDelta,
   }));
   const requiredTotal = requiredChoices.reduce((s, c) => s + c.priceDelta, 0);
+  const modeForPricing = noteModalContext === "orderEdit" ? editingOrderMode : orderMode;
+  const base = effectivePrice(noteTargetItem, modeForPricing);
 
   const line = {
     lineId: uid(),
     menuId: noteTargetItem.id,
     name: noteTargetItem.name,
-    basePrice: noteTargetItem.price,
+    basePrice: base,
     addOns: noteSelectedAddOns.slice(),
     requiredChoices,
-    price: noteTargetItem.price + addOnsTotal + requiredTotal,
+    price: base + addOnsTotal + requiredTotal,
     qty: noteQty,
     note,
   };
@@ -647,11 +682,24 @@ function openReceiptPreview() {
   html += `<div class="receipt-line receipt-total"><span>总计</span><span>${fmt(t.total)}</span></div>`;
 
   $("#receiptView").innerHTML = html;
-  checkoutPaymentMethod = "cash";
-  renderPaymentToggle();
-  $("#cashGivenWrap").classList.remove("hidden");
-  $("#cashGivenInput").value = "";
-  updateChangeDue();
+
+  if (orderMode === "delivery") {
+    $("#paymentMethodToggle").classList.add("hidden");
+    $("#cashGivenWrap").classList.add("hidden");
+    $("#deliveryFieldsWrap").classList.remove("hidden");
+    $("#deliveryPlatformInput").value = "Grab";
+    $("#deliveryOrderIdInput").value = "";
+    $("#deliveryCommissionInput").value = DB.settings.deliveryDefaultCommissionPct || 0;
+    updateDeliveryNet();
+  } else {
+    $("#deliveryFieldsWrap").classList.add("hidden");
+    $("#paymentMethodToggle").classList.remove("hidden");
+    checkoutPaymentMethod = "cash";
+    renderPaymentToggle();
+    $("#cashGivenWrap").classList.remove("hidden");
+    $("#cashGivenInput").value = "";
+    updateChangeDue();
+  }
   $("#checkoutModal").classList.remove("hidden");
 }
 
@@ -680,12 +728,24 @@ function updateChangeDue() {
 
 $("#cashGivenInput").addEventListener("input", updateChangeDue);
 
+function updateDeliveryNet() {
+  const t = computeTotals();
+  const pct = Math.min(100, Math.max(0, Number($("#deliveryCommissionInput").value) || 0));
+  const net = t.total * (1 - pct / 100);
+  $("#deliveryNetDisplay").className = "change-due positive";
+  $("#deliveryNetDisplay").textContent = `平台佣金后实收 ${fmt(net)}（订单额 ${fmt(t.total)}）`;
+}
+
+$("#deliveryCommissionInput").addEventListener("input", updateDeliveryNet);
+
 $("#checkoutCancelBtn").addEventListener("click", () => $("#checkoutModal").classList.add("hidden"));
 
 $("#confirmPayBtn").addEventListener("click", () => {
   const t = computeTotals();
   const table = currentTableLabel(orderMode, orderTableNum);
-  const cashGiven = checkoutPaymentMethod === "cash" ? Number($("#cashGivenInput").value) || 0 : null;
+  const isDelivery = orderMode === "delivery";
+  const cashGiven = !isDelivery && checkoutPaymentMethod === "cash" ? Number($("#cashGivenInput").value) || 0 : null;
+
   const order = {
     id: uid(),
     createdAt: new Date().toISOString(),
@@ -699,9 +759,13 @@ $("#confirmPayBtn").addEventListener("click", () => {
     taxRate: t.taxRate,
     tax: t.tax,
     total: t.total,
-    paymentMethod: checkoutPaymentMethod,
+    paymentMethod: isDelivery ? "platform" : checkoutPaymentMethod,
     cashGiven,
     changeDue: cashGiven != null ? cashGiven - t.total : null,
+    deliveryPlatform: isDelivery ? ($("#deliveryPlatformInput").value.trim() || "Grab") : null,
+    deliveryOrderId: isDelivery ? $("#deliveryOrderIdInput").value.trim() : null,
+    deliveryCommissionPct: isDelivery ? (Math.min(100, Math.max(0, Number($("#deliveryCommissionInput").value) || 0))) : null,
+    deliveryNetAmount: isDelivery ? t.total * (1 - (Math.min(100, Math.max(0, Number($("#deliveryCommissionInput").value) || 0)) / 100)) : null,
   };
   DB.orders.unshift(order);
   saveData(DB);
@@ -758,7 +822,7 @@ function renderOrders() {
   dayOrders.forEach((o) => {
     const div = document.createElement("div");
     div.className = "order-card";
-    const paymentLabel = o.paymentMethod ? paymentMethodLabel(o.paymentMethod) : "未记录";
+    const paymentLabel = orderPaymentLabel(o);
     div.innerHTML = `
       <div class="order-card-top"><span>桌号 ${escapeHtml(o.table)}</span><span>${fmt(o.total)}</span></div>
       <div class="order-card-meta">${new Date(o.createdAt).toLocaleString()} ・ ${escapeHtml(paymentLabel)}</div>
@@ -774,6 +838,8 @@ function renderSettlementSection(sectionTitle, orders, pageBreakAfter) {
   const total = orders.reduce((s, o) => s + o.total, 0);
   const subtotal = orders.reduce((s, o) => s + o.subtotal, 0);
   const tax = orders.reduce((s, o) => s + o.tax, 0);
+  const netTotal = orders.reduce((s, o) => s + (o.deliveryNetAmount != null ? o.deliveryNetAmount : o.total), 0);
+  const isDeliverySection = orders.some((o) => o.paymentMethod === "platform");
 
   let html = `
     <h2>${escapeHtml(DB.settings.restaurantName)}</h2>
@@ -784,7 +850,8 @@ function renderSettlementSection(sectionTitle, orders, pageBreakAfter) {
     html += `<div class="print-line"><span>这一天没有此类记录</span></div>`;
   } else {
     orders.forEach((o, i) => {
-      html += `<div class="print-line" style="font-weight:700;"><span>订单 ${i + 1} ・ 桌号 ${escapeHtml(o.table)} ・ ${new Date(o.createdAt).toLocaleTimeString()}</span><span>${fmt(o.total)}</span></div>`;
+      const orderIdStr = o.deliveryOrderId ? ` ・ ${escapeHtml(o.deliveryOrderId)}` : "";
+      html += `<div class="print-line" style="font-weight:700;"><span>订单 ${i + 1} ・ 桌号 ${escapeHtml(o.table)} ・ ${new Date(o.createdAt).toLocaleTimeString()}${orderIdStr}</span><span>${fmt(o.total)}</span></div>`;
       o.items.forEach((it) => {
         const requiredStr = (it.requiredChoices || []).map((c) => c.choiceName).join("+");
         const addOnsStr = (it.addOns || []).map((a) => a.name).join("+");
@@ -798,13 +865,19 @@ function renderSettlementSection(sectionTitle, orders, pageBreakAfter) {
       if (o.paymentMethod === "cash" && o.cashGiven != null) {
         html += `<div class="print-line"><span>　客户给款 / 找零</span><span>${fmt(o.cashGiven)} / ${fmt(o.changeDue)}</span></div>`;
       }
+      if (o.paymentMethod === "platform" && o.deliveryNetAmount != null) {
+        html += `<div class="print-line"><span>　${escapeHtml(o.deliveryPlatform || "")} 佣金 (${o.deliveryCommissionPct || 0}%) 后实收</span><span>${fmt(o.deliveryNetAmount)}</span></div>`;
+      }
     });
     html += `<div class="print-divider"></div>`;
     html += `<div class="print-line"><span>订单数</span><span>${orders.length}</span></div>`;
     html += `<div class="print-line"><span>小计合计</span><span>${fmt(subtotal)}</span></div>`;
     html += `<div class="print-line"><span>税额合计</span><span>${fmt(tax)}</span></div>`;
     html += `<div class="print-divider"></div>`;
-    html += `<div class="print-line print-total"><span>${escapeHtml(sectionTitle)}营业额合计</span><span>${fmt(total)}</span></div>`;
+    html += `<div class="print-line print-total"><span>${escapeHtml(sectionTitle)}订单总额</span><span>${fmt(total)}</span></div>`;
+    if (isDeliverySection) {
+      html += `<div class="print-line print-total"><span>${escapeHtml(sectionTitle)}佣金后实收合计</span><span>${fmt(netTotal)}</span></div>`;
+    }
   }
   if (pageBreakAfter) html += `<div class="print-page-break"></div>`;
   return html;
@@ -815,9 +888,11 @@ $("#printSettlementBtn").addEventListener("click", () => {
   // Orders from before payment-method tracking existed default to Cash.
   const cashOrders = dayOrders.filter((o) => (o.paymentMethod || "cash") === "cash");
   const tngOrders = dayOrders.filter((o) => o.paymentMethod === "tng");
+  const deliveryOrders = dayOrders.filter((o) => o.paymentMethod === "platform");
 
   let html = renderSettlementSection("Cash", cashOrders, true);
-  html += renderSettlementSection("Touch 'n Go", tngOrders, false);
+  html += renderSettlementSection("Touch 'n Go", tngOrders, true);
+  html += renderSettlementSection("外卖 / Delivery", deliveryOrders, false);
 
   $("#printSettlementView").innerHTML = html;
   window.print();
@@ -832,8 +907,12 @@ function openOrderEditModal(order) {
   editingOrderMode = parsed.mode;
   editingOrderTableNum = parsed.tableNum;
   renderOrderEditTableMode();
-  editingOrderPaymentMethod = order.paymentMethod || "cash";
+  editingOrderPaymentMethod = order.paymentMethod === "platform" ? "cash" : (order.paymentMethod || "cash");
   renderOrderEditPayment();
+  $("#orderEditDeliveryPlatformInput").value = order.deliveryPlatform || "";
+  $("#orderEditDeliveryOrderIdInput").value = order.deliveryOrderId || "";
+  $("#orderEditDeliveryCommissionInput").value = order.deliveryCommissionPct != null ? order.deliveryCommissionPct : "";
+  updateOrderEditModeFields();
   $("#orderEditDiscount").value = order.discountPct || 0;
   $("#orderEditItemPicker").classList.add("hidden");
   renderOrderEditItems();
@@ -930,7 +1009,18 @@ function renderOrderEditSummary() {
   $("#orderEditTaxLabel").textContent = `税 (${t.taxRate}%)`;
   $("#orderEditTax").textContent = fmt(t.tax);
   $("#orderEditTotal").textContent = fmt(t.total);
+  if (editingOrderMode === "delivery") updateOrderEditDeliveryNet();
 }
+
+function updateOrderEditDeliveryNet() {
+  const t = orderEditTotals();
+  const pct = Math.min(100, Math.max(0, Number($("#orderEditDeliveryCommissionInput").value) || 0));
+  const net = t.total * (1 - pct / 100);
+  $("#orderEditDeliveryNetDisplay").className = "change-due positive";
+  $("#orderEditDeliveryNetDisplay").textContent = `平台佣金后实收 ${fmt(net)}（订单额 ${fmt(t.total)}）`;
+}
+
+$("#orderEditDeliveryCommissionInput").addEventListener("input", updateOrderEditDeliveryNet);
 
 $("#orderEditDiscount").addEventListener("input", renderOrderEditSummary);
 $("#orderEditCancelBtn").addEventListener("click", () => $("#orderEditModal").classList.add("hidden"));
@@ -943,8 +1033,9 @@ $("#orderEditSaveBtn").addEventListener("click", () => {
   const order = DB.orders.find((o) => o.id === editingOrderId);
   if (!order) return;
   const t = orderEditTotals();
+  const isDelivery = editingOrderMode === "delivery";
   order.table = currentTableLabel(editingOrderMode, editingOrderTableNum);
-  order.paymentMethod = editingOrderPaymentMethod;
+  order.paymentMethod = isDelivery ? "platform" : editingOrderPaymentMethod;
   order.items = editingOrderItems.map((l) => ({
     name: l.name, price: l.price, qty: l.qty, note: l.note,
     addOns: l.addOns || [], requiredChoices: l.requiredChoices || [],
@@ -954,6 +1045,14 @@ $("#orderEditSaveBtn").addEventListener("click", () => {
   order.taxRate = t.taxRate;
   order.tax = t.tax;
   order.total = t.total;
+  const commissionPct = Math.min(100, Math.max(0, Number($("#orderEditDeliveryCommissionInput").value) || 0));
+  order.deliveryPlatform = isDelivery ? ($("#orderEditDeliveryPlatformInput").value.trim() || "Grab") : null;
+  order.deliveryOrderId = isDelivery ? $("#orderEditDeliveryOrderIdInput").value.trim() : null;
+  order.deliveryCommissionPct = isDelivery ? commissionPct : null;
+  order.deliveryNetAmount = isDelivery ? t.total * (1 - commissionPct / 100) : null;
+  if (!isDelivery) {
+    order.cashGiven = order.paymentMethod === "cash" ? order.cashGiven : null;
+  }
   saveData(DB);
   $("#orderEditModal").classList.add("hidden");
   renderOrders();
@@ -1020,6 +1119,10 @@ function openItemModal(item) {
   $("#itemNameInput").value = item ? item.name : "";
   $("#itemCategoryInput").value = item ? item.category : "";
   $("#itemPriceInput").value = item ? item.price : "";
+  $("#itemDeliveryPriceInput").value = item && item.deliveryPriceOverride != null ? item.deliveryPriceOverride : "";
+  $("#itemDeliveryPriceLabel").textContent = item
+    ? `外卖价格（留空 = 自动按全局加价计算，当前约 ${fmt(effectivePrice({ ...item, deliveryPriceOverride: null }, "delivery"))}）`
+    : "外卖价格（留空 = 自动按全局加价计算）";
   $("#itemDeleteBtn").classList.toggle("hidden", !item);
   renderRequiredGroupsEditList();
   renderAddOnEditList();
@@ -1139,11 +1242,13 @@ $("#itemSaveBtn").addEventListener("click", () => {
         .filter((c) => c.name),
     }))
     .filter((g) => g.name && g.choices.length > 0);
+  const deliveryPriceRaw = $("#itemDeliveryPriceInput").value;
+  const deliveryPriceOverride = deliveryPriceRaw === "" ? null : Math.max(0, Number(deliveryPriceRaw) || 0);
   if (editingItemId) {
     const item = DB.menu.find((m) => m.id === editingItemId);
-    Object.assign(item, { name, category, price, addOns, requiredGroups });
+    Object.assign(item, { name, category, price, addOns, requiredGroups, deliveryPriceOverride });
   } else {
-    DB.menu.push({ id: uid(), name, category, price, addOns, requiredGroups });
+    DB.menu.push({ id: uid(), name, category, price, addOns, requiredGroups, deliveryPriceOverride });
   }
   const result = saveData(DB);
   if (!result.ok) {
@@ -1174,6 +1279,8 @@ function fillSettingsForm() {
   $("#settingTaxRate").value = DB.settings.taxRate;
   $("#settingCurrency").value = DB.settings.currency;
   $("#settingTableCount").value = DB.settings.tableCount || 12;
+  $("#settingDeliveryMarkup").value = DB.settings.deliveryMarkupPct != null ? DB.settings.deliveryMarkupPct : 15;
+  $("#settingDeliveryCommission").value = DB.settings.deliveryDefaultCommissionPct != null ? DB.settings.deliveryDefaultCommissionPct : 30;
 }
 
 $("#saveSettingsBtn").addEventListener("click", () => {
@@ -1181,10 +1288,13 @@ $("#saveSettingsBtn").addEventListener("click", () => {
   DB.settings.taxRate = Number($("#settingTaxRate").value) || 0;
   DB.settings.currency = $("#settingCurrency").value.trim() || "$";
   DB.settings.tableCount = Math.max(1, Number($("#settingTableCount").value) || 12);
+  DB.settings.deliveryMarkupPct = Math.max(0, Number($("#settingDeliveryMarkup").value) || 0);
+  DB.settings.deliveryDefaultCommissionPct = Math.min(100, Math.max(0, Number($("#settingDeliveryCommission").value) || 0));
   saveData(DB);
   $("#restaurantName").textContent = DB.settings.restaurantName;
   renderSummary();
   renderOrderTableMode();
+  renderMenuGrid();
   alert("设置已保存");
 });
 

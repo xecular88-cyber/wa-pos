@@ -42,6 +42,7 @@
           <div class="mode-toggle" id="orderModeToggle">
             <button type="button" class="mode-btn" data-mode="dinein">堂食</button>
             <button type="button" class="mode-btn" data-mode="takeout">外带</button>
+            <button type="button" class="mode-btn" data-mode="delivery">外卖</button>
           </div>
           <div class="table-grid hidden" id="tableGrid"></div>
         </div>
@@ -121,8 +122,16 @@
         <input type="text" id="settingCurrency" maxlength="3">
       </div>
       <div class="form-row">
-        <label>编号数量（堂食桌号 / 外带单号共用这个范围）</label>
+        <label>编号数量（堂食桌号 / 外带 / 外卖单号共用这个范围）</label>
         <input type="number" id="settingTableCount" min="1" step="1">
+      </div>
+      <div class="form-row">
+        <label>外卖统一加价 %（相对堂食价格，个别菜品可在编辑里单独覆盖）</label>
+        <input type="number" id="settingDeliveryMarkup" min="0" step="0.1">
+      </div>
+      <div class="form-row">
+        <label>外卖平台默认佣金 %（结账时可按单独调整）</label>
+        <input type="number" id="settingDeliveryCommission" min="0" max="100" step="0.1">
       </div>
       <button class="primary-btn" id="saveSettingsBtn">保存设置</button>
       <hr>
@@ -153,8 +162,12 @@
       <datalist id="categoryList"></datalist>
     </div>
     <div class="form-row">
-      <label>价格</label>
+      <label>价格（堂食 / 外带）</label>
       <input type="number" id="itemPriceInput" min="0" step="0.01">
+    </div>
+    <div class="form-row">
+      <label id="itemDeliveryPriceLabel">外卖价格（留空 = 自动按全局加价计算）</label>
+      <input type="number" id="itemDeliveryPriceInput" min="0" step="0.01" placeholder="自动计算">
     </div>
     <div class="form-row">
       <label>必选选项组（可选，例如"份量"：必须从中选一个，价格可加可不加）</label>
@@ -203,7 +216,7 @@
 <div class="modal-backdrop hidden" id="checkoutModal">
   <div class="modal receipt-modal">
     <div id="receiptView"></div>
-    <div class="mode-toggle" id="paymentMethodToggle">
+    <div class="mode-toggle hidden" id="paymentMethodToggle">
       <button type="button" class="mode-btn" data-method="cash">Cash</button>
       <button type="button" class="mode-btn" data-method="tng">Touch 'n Go</button>
     </div>
@@ -211,6 +224,21 @@
       <label>客户给的钱</label>
       <input type="number" id="cashGivenInput" min="0" step="0.01" placeholder="0.00">
       <div class="change-due" id="changeDueDisplay"></div>
+    </div>
+    <div class="hidden" id="deliveryFieldsWrap">
+      <div class="form-row">
+        <label>外卖平台</label>
+        <input type="text" id="deliveryPlatformInput" placeholder="Grab">
+      </div>
+      <div class="form-row">
+        <label>平台订单号（可选，方便对账）</label>
+        <input type="text" id="deliveryOrderIdInput" placeholder="例如 GF-992">
+      </div>
+      <div class="form-row">
+        <label>平台佣金 %</label>
+        <input type="number" id="deliveryCommissionInput" min="0" max="100" step="0.1">
+      </div>
+      <div class="change-due" id="deliveryNetDisplay"></div>
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" id="checkoutCancelBtn">返回</button>
@@ -228,15 +256,31 @@
       <div class="mode-toggle" id="orderEditModeToggle">
         <button type="button" class="mode-btn" data-mode="dinein">堂食</button>
         <button type="button" class="mode-btn" data-mode="takeout">外带</button>
+        <button type="button" class="mode-btn" data-mode="delivery">外卖</button>
       </div>
       <div class="table-grid hidden" id="orderEditTableGrid"></div>
     </div>
-    <div class="form-row">
+    <div class="form-row" id="orderEditPaymentWrap">
       <label>支付方式</label>
       <div class="mode-toggle" id="orderEditPaymentToggle">
         <button type="button" class="mode-btn" data-method="cash">Cash</button>
         <button type="button" class="mode-btn" data-method="tng">Touch 'n Go</button>
       </div>
+    </div>
+    <div class="hidden" id="orderEditDeliveryFieldsWrap">
+      <div class="form-row">
+        <label>外卖平台</label>
+        <input type="text" id="orderEditDeliveryPlatformInput" placeholder="Grab">
+      </div>
+      <div class="form-row">
+        <label>平台订单号（可选）</label>
+        <input type="text" id="orderEditDeliveryOrderIdInput" placeholder="例如 GF-992">
+      </div>
+      <div class="form-row">
+        <label>平台佣金 %</label>
+        <input type="number" id="orderEditDeliveryCommissionInput" min="0" max="100" step="0.1">
+      </div>
+      <div class="change-due" id="orderEditDeliveryNetDisplay"></div>
     </div>
     <div class="cart-items" id="orderEditItems"></div>
     <select id="orderEditItemPicker" class="hidden"></select>
