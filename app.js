@@ -262,6 +262,10 @@ function renderCategoryTabs() {
 }
 
 function renderMenuGrid() {
+  const menuPane = document.querySelector(".menu-pane");
+  menuPane.classList.remove("mode-dinein", "mode-takeout", "mode-delivery");
+  menuPane.classList.add(`mode-${orderMode}`);
+
   const grid = $("#menuGrid");
   grid.innerHTML = "";
   const items = DB.menu.filter((m) => activeCategory === "全部" || m.category === activeCategory);

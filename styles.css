@@ -103,6 +103,9 @@ select#orderEditItemPicker {
   cursor: pointer; white-space: nowrap;
 }
 .cat-btn.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.menu-pane.mode-dinein .cat-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+.menu-pane.mode-takeout .cat-btn.active { background: #d97706; border-color: #d97706; color: #fff; }
+.menu-pane.mode-delivery .cat-btn.active { background: #00b14f; border-color: #00b14f; color: #fff; }
 
 .menu-grid {
   flex: 1; overflow-y: auto;
@@ -124,6 +127,12 @@ select#orderEditItemPicker {
 .menu-item .name { font-weight: 700; font-size: 15px; line-height: 1.3; }
 .addon-badge { font-size: 11px; font-weight: 600; color: var(--accent); background: #fdf1ec; border-radius: 999px; padding: 1px 6px; vertical-align: middle; }
 .menu-item .price { color: var(--accent); font-weight: 700; margin-top: 8px; font-size: 14px; }
+.menu-pane.mode-dinein .menu-item .price { color: #2563eb; }
+.menu-pane.mode-dinein .addon-badge { color: #2563eb; background: #e8f0fe; }
+.menu-pane.mode-takeout .menu-item .price { color: #d97706; }
+.menu-pane.mode-takeout .addon-badge { color: #d97706; background: #fdf1e0; }
+.menu-pane.mode-delivery .menu-item .price { color: #00b14f; }
+.menu-pane.mode-delivery .addon-badge { color: #00b14f; background: #e3f7ea; }
 
 /* CART */
 .cart-pane {
