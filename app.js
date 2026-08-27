@@ -5,7 +5,7 @@ const STORAGE_KEY = "pos_data_v1";
 const DEMO_DATA = {
   settings: {
     restaurantName: "我的餐厅", taxRate: 0, currency: "$", tableCount: 12,
-    deliveryMarkupPct: 15, deliveryDefaultCommissionPct: 30,
+    deliveryMarkupPct: 15, deliveryDefaultCommissionPct: 30, deliveryDefaultSstPct: 8,
   },
   menu: [
     { id: "m1", name: "招牌炒饭", category: "主食", price: 12.5, addOns: [
@@ -369,6 +369,14 @@ function effectiveChoiceDelta(choice, mode) {
   return effectiveExtraPrice(choice.priceDelta, mode);
 }
 
+// Platforms like Grab charge their commission fee, then charge SST (Malaysian
+// service tax, normally 8%) on top of that commission fee — not on the order
+// total. e.g. RM38 order, 30% commission, 8% SST: fee = 38*0.30*1.08 = 12.31.
+function computeDeliveryNet(total, commissionPct, sstPct) {
+  const fee = total * (commissionPct / 100) * (1 + sstPct / 100);
+  return total - fee;
+}
+
 /* ---------- Per-table open orders ---------- */
 /* Each dine-in table (and takeout) keeps its own in-progress cart, so
    switching tables never loses or mixes up what's already been ordered. */
@@ -411,6 +419,7 @@ function updateOrderEditModeFields() {
   if (isDelivery) {
     if (!$("#orderEditDeliveryPlatformInput").value) $("#orderEditDeliveryPlatformInput").value = "Grab";
     if (!$("#orderEditDeliveryCommissionInput").value) $("#orderEditDeliveryCommissionInput").value = DB.settings.deliveryDefaultCommissionPct || 0;
+    if (!$("#orderEditDeliverySstInput").value) $("#orderEditDeliverySstInput").value = DB.settings.deliveryDefaultSstPct || 0;
     updateOrderEditDeliveryNet();
   }
 }
@@ -717,6 +726,7 @@ function openReceiptPreview() {
     $("#deliveryPlatformInput").value = "Grab";
     $("#deliveryOrderIdInput").value = "";
     $("#deliveryCommissionInput").value = DB.settings.deliveryDefaultCommissionPct || 0;
+    $("#deliverySstInput").value = DB.settings.deliveryDefaultSstPct || 0;
     updateDeliveryNet();
   } else {
     $("#deliveryFieldsWrap").classList.add("hidden");
@@ -758,12 +768,14 @@ $("#cashGivenInput").addEventListener("input", updateChangeDue);
 function updateDeliveryNet() {
   const t = computeTotals();
   const pct = Math.min(100, Math.max(0, Number($("#deliveryCommissionInput").value) || 0));
-  const net = t.total * (1 - pct / 100);
+  const sstPct = Math.min(100, Math.max(0, Number($("#deliverySstInput").value) || 0));
+  const net = computeDeliveryNet(t.total, pct, sstPct);
   $("#deliveryNetDisplay").className = "change-due positive";
-  $("#deliveryNetDisplay").textContent = `平台佣金后实收 ${fmt(net)}（订单额 ${fmt(t.total)}）`;
+  $("#deliveryNetDisplay").textContent = `平台佣金+SST后实收 ${fmt(net)}（订单额 ${fmt(t.total)}）`;
 }
 
 $("#deliveryCommissionInput").addEventListener("input", updateDeliveryNet);
+$("#deliverySstInput").addEventListener("input", updateDeliveryNet);
 
 $("#checkoutCancelBtn").addEventListener("click", () => $("#checkoutModal").classList.add("hidden"));
 
@@ -792,7 +804,12 @@ $("#confirmPayBtn").addEventListener("click", () => {
     deliveryPlatform: isDelivery ? ($("#deliveryPlatformInput").value.trim() || "Grab") : null,
     deliveryOrderId: isDelivery ? $("#deliveryOrderIdInput").value.trim() : null,
     deliveryCommissionPct: isDelivery ? (Math.min(100, Math.max(0, Number($("#deliveryCommissionInput").value) || 0))) : null,
-    deliveryNetAmount: isDelivery ? t.total * (1 - (Math.min(100, Math.max(0, Number($("#deliveryCommissionInput").value) || 0)) / 100)) : null,
+    deliverySstPct: isDelivery ? (Math.min(100, Math.max(0, Number($("#deliverySstInput").value) || 0))) : null,
+    deliveryNetAmount: isDelivery ? computeDeliveryNet(
+      t.total,
+      Math.min(100, Math.max(0, Number($("#deliveryCommissionInput").value) || 0)),
+      Math.min(100, Math.max(0, Number($("#deliverySstInput").value) || 0))
+    ) : null,
   };
   DB.orders.unshift(order);
   saveData(DB);
@@ -851,7 +868,7 @@ function renderOrders() {
     div.className = "order-card";
     const paymentLabel = orderPaymentLabel(o);
     const isDelivery = o.paymentMethod === "platform" && o.deliveryNetAmount != null;
-    const netNote = isDelivery ? `<div class="order-card-meta">订单额 ${fmt(o.total)} ・ 佣金 ${o.deliveryCommissionPct || 0}% ・ 实收 ${fmt(o.deliveryNetAmount)}</div>` : "";
+    const netNote = isDelivery ? `<div class="order-card-meta">订单额 ${fmt(o.total)} ・ 佣金 ${o.deliveryCommissionPct || 0}%${o.deliverySstPct ? ` + SST ${o.deliverySstPct}%` : ""} ・ 实收 ${fmt(o.deliveryNetAmount)}</div>` : "";
     div.innerHTML = `
       <div class="order-card-top"><span>桌号 ${escapeHtml(o.table)}</span><span>${fmt(orderRevenue(o))}</span></div>
       <div class="order-card-meta">${new Date(o.createdAt).toLocaleString()} ・ ${escapeHtml(paymentLabel)}</div>
@@ -896,7 +913,7 @@ function renderSettlementSection(sectionTitle, orders, pageBreakAfter) {
         html += `<div class="print-line"><span>　客户给款 / 找零</span><span>${fmt(o.cashGiven)} / ${fmt(o.changeDue)}</span></div>`;
       }
       if (o.paymentMethod === "platform" && o.deliveryNetAmount != null) {
-        html += `<div class="print-line"><span>　订单额 ${fmt(o.total)} － ${escapeHtml(o.deliveryPlatform || "")} 佣金 (${o.deliveryCommissionPct || 0}%)</span><span>已扣除</span></div>`;
+        html += `<div class="print-line"><span>　订单额 ${fmt(o.total)} － ${escapeHtml(o.deliveryPlatform || "")} 佣金 (${o.deliveryCommissionPct || 0}%)${o.deliverySstPct ? ` + SST (${o.deliverySstPct}%)` : ""}</span><span>已扣除</span></div>`;
       }
     });
     html += `<div class="print-divider"></div>`;
@@ -942,6 +959,7 @@ function openOrderEditModal(order) {
   $("#orderEditDeliveryPlatformInput").value = order.deliveryPlatform || "";
   $("#orderEditDeliveryOrderIdInput").value = order.deliveryOrderId || "";
   $("#orderEditDeliveryCommissionInput").value = order.deliveryCommissionPct != null ? order.deliveryCommissionPct : "";
+  $("#orderEditDeliverySstInput").value = order.deliverySstPct != null ? order.deliverySstPct : "";
   updateOrderEditModeFields();
   $("#orderEditDiscount").value = order.discountPct || 0;
   $("#orderEditItemPicker").classList.add("hidden");
@@ -1045,12 +1063,14 @@ function renderOrderEditSummary() {
 function updateOrderEditDeliveryNet() {
   const t = orderEditTotals();
   const pct = Math.min(100, Math.max(0, Number($("#orderEditDeliveryCommissionInput").value) || 0));
-  const net = t.total * (1 - pct / 100);
+  const sstPct = Math.min(100, Math.max(0, Number($("#orderEditDeliverySstInput").value) || 0));
+  const net = computeDeliveryNet(t.total, pct, sstPct);
   $("#orderEditDeliveryNetDisplay").className = "change-due positive";
-  $("#orderEditDeliveryNetDisplay").textContent = `平台佣金后实收 ${fmt(net)}（订单额 ${fmt(t.total)}）`;
+  $("#orderEditDeliveryNetDisplay").textContent = `平台佣金+SST后实收 ${fmt(net)}（订单额 ${fmt(t.total)}）`;
 }
 
 $("#orderEditDeliveryCommissionInput").addEventListener("input", updateOrderEditDeliveryNet);
+$("#orderEditDeliverySstInput").addEventListener("input", updateOrderEditDeliveryNet);
 
 $("#orderEditDiscount").addEventListener("input", renderOrderEditSummary);
 $("#orderEditCancelBtn").addEventListener("click", () => $("#orderEditModal").classList.add("hidden"));
@@ -1076,10 +1096,12 @@ $("#orderEditSaveBtn").addEventListener("click", () => {
   order.tax = t.tax;
   order.total = t.total;
   const commissionPct = Math.min(100, Math.max(0, Number($("#orderEditDeliveryCommissionInput").value) || 0));
+  const sstPct = Math.min(100, Math.max(0, Number($("#orderEditDeliverySstInput").value) || 0));
   order.deliveryPlatform = isDelivery ? ($("#orderEditDeliveryPlatformInput").value.trim() || "Grab") : null;
   order.deliveryOrderId = isDelivery ? $("#orderEditDeliveryOrderIdInput").value.trim() : null;
   order.deliveryCommissionPct = isDelivery ? commissionPct : null;
-  order.deliveryNetAmount = isDelivery ? t.total * (1 - commissionPct / 100) : null;
+  order.deliverySstPct = isDelivery ? sstPct : null;
+  order.deliveryNetAmount = isDelivery ? computeDeliveryNet(t.total, commissionPct, sstPct) : null;
   if (!isDelivery) {
     order.cashGiven = order.paymentMethod === "cash" ? order.cashGiven : null;
   }
@@ -1320,6 +1342,7 @@ function fillSettingsForm() {
   $("#settingTableCount").value = DB.settings.tableCount || 12;
   $("#settingDeliveryMarkup").value = DB.settings.deliveryMarkupPct != null ? DB.settings.deliveryMarkupPct : 15;
   $("#settingDeliveryCommission").value = DB.settings.deliveryDefaultCommissionPct != null ? DB.settings.deliveryDefaultCommissionPct : 30;
+  $("#settingDeliverySst").value = DB.settings.deliveryDefaultSstPct != null ? DB.settings.deliveryDefaultSstPct : 8;
 }
 
 $("#saveSettingsBtn").addEventListener("click", () => {
@@ -1329,6 +1352,7 @@ $("#saveSettingsBtn").addEventListener("click", () => {
   DB.settings.tableCount = Math.max(1, Number($("#settingTableCount").value) || 12);
   DB.settings.deliveryMarkupPct = Math.max(0, Number($("#settingDeliveryMarkup").value) || 0);
   DB.settings.deliveryDefaultCommissionPct = Math.min(100, Math.max(0, Number($("#settingDeliveryCommission").value) || 0));
+  DB.settings.deliveryDefaultSstPct = Math.min(100, Math.max(0, Number($("#settingDeliverySst").value) || 0));
   saveData(DB);
   $("#restaurantName").textContent = DB.settings.restaurantName;
   renderSummary();
