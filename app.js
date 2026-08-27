@@ -351,6 +351,15 @@ function effectivePrice(item, mode) {
   return item.price * (1 + pct / 100);
 }
 
+// Add-ons and required-option price deltas don't have their own delivery
+// override field, so they always scale by the global delivery markup %
+// (even when the item itself uses a flat per-item override price).
+function effectiveExtraPrice(rawPrice, mode) {
+  if (mode !== "delivery") return rawPrice;
+  const pct = DB.settings.deliveryMarkupPct || 0;
+  return rawPrice * (1 + pct / 100);
+}
+
 /* ---------- Per-table open orders ---------- */
 /* Each dine-in table (and takeout) keeps its own in-progress cart, so
    switching tables never loses or mixes up what's already been ordered. */
@@ -429,6 +438,12 @@ function orderPaymentLabel(o) {
   return o.paymentMethod ? paymentMethodLabel(o.paymentMethod) : "未记录";
 }
 
+// Actual money received for an order — for delivery orders this is the
+// commission-deducted net amount, not the customer-facing order total.
+function orderRevenue(o) {
+  return o.paymentMethod === "platform" && o.deliveryNetAmount != null ? o.deliveryNetAmount : o.total;
+}
+
 /* ---------- Note / quantity modal ---------- */
 
 function openNoteModal(item, context) {
@@ -440,13 +455,14 @@ function openNoteModal(item, context) {
   $("#noteModalTitle").textContent = item.name;
   $("#noteQtyValue").textContent = noteQty;
   $("#noteInput").value = "";
-  renderNoteRequiredGroups(item);
-  renderNoteAddOns(item);
+  const mode = noteModalContext === "orderEdit" ? editingOrderMode : orderMode;
+  renderNoteRequiredGroups(item, mode);
+  renderNoteAddOns(item, mode);
   updateNoteAddBtnState();
   $("#noteModal").classList.remove("hidden");
 }
 
-function renderNoteRequiredGroups(item) {
+function renderNoteRequiredGroups(item, mode) {
   const groups = item.requiredGroups || [];
   const wrap = $("#noteRequiredGroupsWrap");
   wrap.innerHTML = "";
@@ -455,6 +471,7 @@ function renderNoteRequiredGroups(item) {
     block.className = "required-group-block";
     block.innerHTML = `<span class="group-title">${escapeHtml(group.name)} <span class="required-star">*必选</span></span>`;
     (group.choices || []).forEach((choice) => {
+      const delta = effectiveExtraPrice(choice.priceDelta, mode);
       const row = document.createElement("label");
       row.className = "required-choice-row";
       row.innerHTML = `
@@ -462,7 +479,7 @@ function renderNoteRequiredGroups(item) {
           <input type="radio" name="required-${group.id}">
           ${escapeHtml(choice.name)}
         </span>
-        <span class="required-choice-price">${choice.priceDelta > 0 ? "+" + fmt(choice.priceDelta) : choice.priceDelta < 0 ? "-" + fmt(Math.abs(choice.priceDelta)) : "免费"}</span>
+        <span class="required-choice-price">${delta > 0 ? "+" + fmt(delta) : delta < 0 ? "-" + fmt(Math.abs(delta)) : "免费"}</span>
       `;
       const radio = row.querySelector("input");
       radio.addEventListener("change", () => {
@@ -483,7 +500,7 @@ function updateNoteAddBtnState() {
   $("#noteAddBtn").disabled = !allSelected;
 }
 
-function renderNoteAddOns(item) {
+function renderNoteAddOns(item, mode) {
   const addOns = item.addOns || [];
   const section = $("#noteAddOnsSection");
   const list = $("#noteAddOnsList");
@@ -494,6 +511,7 @@ function renderNoteAddOns(item) {
   }
   section.classList.remove("hidden");
   addOns.forEach((addOn) => {
+    const price = effectiveExtraPrice(addOn.price, mode);
     const row = document.createElement("label");
     row.className = "addon-check-row";
     row.innerHTML = `
@@ -501,7 +519,7 @@ function renderNoteAddOns(item) {
         <input type="checkbox" data-addon-id="${addOn.id}">
         ${escapeHtml(addOn.name)}
       </span>
-      <span class="addon-check-price">${addOn.price > 0 ? "+" + fmt(addOn.price) : "免费"}</span>
+      <span class="addon-check-price">${price > 0 ? "+" + fmt(price) : "免费"}</span>
     `;
     const checkbox = row.querySelector("input");
     checkbox.addEventListener("change", () => {
@@ -531,16 +549,16 @@ $("#noteAddBtn").addEventListener("click", () => {
   if (!groups.every((g) => noteSelectedRequired[g.id])) return;
 
   const note = $("#noteInput").value.trim();
-  const addOnsTotal = noteSelectedAddOns.reduce((s, a) => s + a.price, 0);
+  const modeForPricing = noteModalContext === "orderEdit" ? editingOrderMode : orderMode;
+  const addOnsTotal = noteSelectedAddOns.reduce((s, a) => s + effectiveExtraPrice(a.price, modeForPricing), 0);
   const requiredChoices = groups.map((g) => ({
     groupId: g.id,
     groupName: g.name,
     choiceId: noteSelectedRequired[g.id].id,
     choiceName: noteSelectedRequired[g.id].name,
-    priceDelta: noteSelectedRequired[g.id].priceDelta,
+    priceDelta: effectiveExtraPrice(noteSelectedRequired[g.id].priceDelta, modeForPricing),
   }));
   const requiredTotal = requiredChoices.reduce((s, c) => s + c.priceDelta, 0);
-  const modeForPricing = noteModalContext === "orderEdit" ? editingOrderMode : orderMode;
   const base = effectivePrice(noteTargetItem, modeForPricing);
 
   const line = {
@@ -811,8 +829,8 @@ function renderOrders() {
   list.innerHTML = "";
 
   const dayOrders = ordersOnDate(selectedOrdersDate);
-  const dayTotal = dayOrders.reduce((s, o) => s + o.total, 0);
-  $("#dayStats").innerHTML = `<span>当日订单：<b>${dayOrders.length}</b></span><span>当日营业额：<b>${fmt(dayTotal)}</b></span>`;
+  const dayTotal = dayOrders.reduce((s, o) => s + orderRevenue(o), 0);
+  $("#dayStats").innerHTML = `<span>当日订单：<b>${dayOrders.length}</b></span><span>当日营业额（外卖已扣佣金）：<b>${fmt(dayTotal)}</b></span>`;
 
   if (dayOrders.length === 0) {
     list.innerHTML = `<p class="empty-hint">这一天没有订单记录</p>`;
@@ -823,9 +841,12 @@ function renderOrders() {
     const div = document.createElement("div");
     div.className = "order-card";
     const paymentLabel = orderPaymentLabel(o);
+    const isDelivery = o.paymentMethod === "platform" && o.deliveryNetAmount != null;
+    const netNote = isDelivery ? `<div class="order-card-meta">订单额 ${fmt(o.total)} ・ 佣金 ${o.deliveryCommissionPct || 0}% ・ 实收 ${fmt(o.deliveryNetAmount)}</div>` : "";
     div.innerHTML = `
-      <div class="order-card-top"><span>桌号 ${escapeHtml(o.table)}</span><span>${fmt(o.total)}</span></div>
+      <div class="order-card-top"><span>桌号 ${escapeHtml(o.table)}</span><span>${fmt(orderRevenue(o))}</span></div>
       <div class="order-card-meta">${new Date(o.createdAt).toLocaleString()} ・ ${escapeHtml(paymentLabel)}</div>
+      ${netNote}
       <div class="order-card-items">${escapeHtml(orderItemsSummary(o))}</div>
       <div class="order-card-actions"><button data-act="edit">编辑订单</button></div>
     `;
@@ -835,10 +856,10 @@ function renderOrders() {
 }
 
 function renderSettlementSection(sectionTitle, orders, pageBreakAfter) {
-  const total = orders.reduce((s, o) => s + o.total, 0);
+  const grossTotal = orders.reduce((s, o) => s + o.total, 0);
   const subtotal = orders.reduce((s, o) => s + o.subtotal, 0);
   const tax = orders.reduce((s, o) => s + o.tax, 0);
-  const netTotal = orders.reduce((s, o) => s + (o.deliveryNetAmount != null ? o.deliveryNetAmount : o.total), 0);
+  const revenueTotal = orders.reduce((s, o) => s + orderRevenue(o), 0);
   const isDeliverySection = orders.some((o) => o.paymentMethod === "platform");
 
   let html = `
@@ -851,7 +872,7 @@ function renderSettlementSection(sectionTitle, orders, pageBreakAfter) {
   } else {
     orders.forEach((o, i) => {
       const orderIdStr = o.deliveryOrderId ? ` ・ ${escapeHtml(o.deliveryOrderId)}` : "";
-      html += `<div class="print-line" style="font-weight:700;"><span>订单 ${i + 1} ・ 桌号 ${escapeHtml(o.table)} ・ ${new Date(o.createdAt).toLocaleTimeString()}${orderIdStr}</span><span>${fmt(o.total)}</span></div>`;
+      html += `<div class="print-line" style="font-weight:700;"><span>订单 ${i + 1} ・ 桌号 ${escapeHtml(o.table)} ・ ${new Date(o.createdAt).toLocaleTimeString()}${orderIdStr}</span><span>${fmt(orderRevenue(o))}</span></div>`;
       o.items.forEach((it) => {
         const requiredStr = (it.requiredChoices || []).map((c) => c.choiceName).join("+");
         const addOnsStr = (it.addOns || []).map((a) => a.name).join("+");
@@ -866,18 +887,18 @@ function renderSettlementSection(sectionTitle, orders, pageBreakAfter) {
         html += `<div class="print-line"><span>　客户给款 / 找零</span><span>${fmt(o.cashGiven)} / ${fmt(o.changeDue)}</span></div>`;
       }
       if (o.paymentMethod === "platform" && o.deliveryNetAmount != null) {
-        html += `<div class="print-line"><span>　${escapeHtml(o.deliveryPlatform || "")} 佣金 (${o.deliveryCommissionPct || 0}%) 后实收</span><span>${fmt(o.deliveryNetAmount)}</span></div>`;
+        html += `<div class="print-line"><span>　订单额 ${fmt(o.total)} － ${escapeHtml(o.deliveryPlatform || "")} 佣金 (${o.deliveryCommissionPct || 0}%)</span><span>已扣除</span></div>`;
       }
     });
     html += `<div class="print-divider"></div>`;
     html += `<div class="print-line"><span>订单数</span><span>${orders.length}</span></div>`;
     html += `<div class="print-line"><span>小计合计</span><span>${fmt(subtotal)}</span></div>`;
     html += `<div class="print-line"><span>税额合计</span><span>${fmt(tax)}</span></div>`;
-    html += `<div class="print-divider"></div>`;
-    html += `<div class="print-line print-total"><span>${escapeHtml(sectionTitle)}订单总额</span><span>${fmt(total)}</span></div>`;
     if (isDeliverySection) {
-      html += `<div class="print-line print-total"><span>${escapeHtml(sectionTitle)}佣金后实收合计</span><span>${fmt(netTotal)}</span></div>`;
+      html += `<div class="print-line"><span>订单原价合计（扣佣金前）</span><span>${fmt(grossTotal)}</span></div>`;
     }
+    html += `<div class="print-divider"></div>`;
+    html += `<div class="print-line print-total"><span>${escapeHtml(sectionTitle)}实收合计${isDeliverySection ? "（已扣佣金）" : ""}</span><span>${fmt(revenueTotal)}</span></div>`;
   }
   if (pageBreakAfter) html += `<div class="print-page-break"></div>`;
   return html;
