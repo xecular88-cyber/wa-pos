@@ -72,6 +72,10 @@ html, body {
 .mode-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 3px; background: var(--bg); }
 .mode-btn { border: none; background: none; padding: 7px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; cursor: pointer; color: var(--ink-soft); }
 .mode-btn.active { background: var(--accent); color: #fff; }
+/* Distinct colors per order type so 堂食/外带/Grab don't get mixed up at a glance. */
+.mode-btn-dinein.active { background: #2563eb; }
+.mode-btn-takeout.active { background: #d97706; }
+.mode-btn-delivery.active { background: #00b14f; }
 
 select#orderEditItemPicker {
   border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 15px; background: var(--panel);
@@ -88,6 +92,9 @@ select#orderEditItemPicker {
   cursor: pointer;
 }
 .table-grid-btn.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.table-grid.mode-dinein .table-grid-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+.table-grid.mode-takeout .table-grid-btn.active { background: #d97706; border-color: #d97706; color: #fff; }
+.table-grid.mode-delivery .table-grid-btn.active { background: #00b14f; border-color: #00b14f; color: #fff; }
 
 .category-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; flex: none; }
 .cat-btn {

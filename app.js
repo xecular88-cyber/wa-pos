@@ -296,6 +296,8 @@ function wireTableModeToggle(toggleId, gridId, getMode, setMode, getTableNum, se
   function render() {
     toggle.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === getMode()));
     grid.classList.remove("hidden");
+    grid.classList.remove("mode-dinein", "mode-takeout", "mode-delivery");
+    grid.classList.add(`mode-${getMode()}`);
 
     const count = DB.settings.tableCount || 12;
     if (getTableNum() > count) setTableNum(count);
@@ -328,14 +330,15 @@ function wireTableModeToggle(toggleId, gridId, getMode, setMode, getTableNum, se
 
 function currentTableLabel(mode, tableNum) {
   if (mode === "dinein") return `桌 ${tableNum}`;
-  if (mode === "delivery") return `外卖 #${tableNum}`;
+  if (mode === "delivery") return `Grab #${tableNum}`;
   return `外带 #${tableNum}`;
 }
 
 function parseTableLabel(label) {
   let m = /^桌\s*(\d+)$/.exec(label || "");
   if (m) return { mode: "dinein", tableNum: Number(m[1]) };
-  m = /^外卖\s*#?(\d+)$/.exec(label || "");
+  // "Grab #N" for new orders, "外卖 #N" kept for orders saved before the rename.
+  m = /^(?:Grab|外卖)\s*#?(\d+)$/.exec(label || "");
   if (m) return { mode: "delivery", tableNum: Number(m[1]) };
   m = /^外带\s*#?(\d+)$/.exec(label || "");
   if (m) return { mode: "takeout", tableNum: Number(m[1]) };
@@ -452,7 +455,7 @@ function paymentMethodLabel(method) {
 }
 
 function orderPaymentLabel(o) {
-  if (o.paymentMethod === "platform") return o.deliveryPlatform || "外卖";
+  if (o.paymentMethod === "platform") return o.deliveryPlatform || "Grab";
   return o.paymentMethod ? paymentMethodLabel(o.paymentMethod) : "未记录";
 }
 
@@ -856,7 +859,7 @@ function renderOrders() {
 
   const dayOrders = ordersOnDate(selectedOrdersDate);
   const dayTotal = dayOrders.reduce((s, o) => s + orderRevenue(o), 0);
-  $("#dayStats").innerHTML = `<span>当日订单：<b>${dayOrders.length}</b></span><span>当日营业额（外卖已扣佣金）：<b>${fmt(dayTotal)}</b></span>`;
+  $("#dayStats").innerHTML = `<span>当日订单：<b>${dayOrders.length}</b></span><span>当日营业额（Grab已扣佣金）：<b>${fmt(dayTotal)}</b></span>`;
 
   if (dayOrders.length === 0) {
     list.innerHTML = `<p class="empty-hint">这一天没有订单记录</p>`;
