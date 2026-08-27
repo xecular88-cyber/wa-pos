@@ -74,8 +74,8 @@ html, body {
 .mode-btn.active { background: var(--accent); color: #fff; }
 /* Distinct colors per order type so 堂食/外带/Grab don't get mixed up at a glance. */
 .mode-btn-dinein.active { background: #2563eb; }
-.mode-btn-takeout.active { background: #d97706; }
-.mode-btn-delivery.active { background: #00b14f; }
+.mode-btn-takeout.active { background: #E25822; }
+.mode-btn-delivery.active { background: #0B6623; }
 
 select#orderEditItemPicker {
   border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; font-size: 15px; background: var(--panel);
@@ -93,8 +93,8 @@ select#orderEditItemPicker {
 }
 .table-grid-btn.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .table-grid.mode-dinein .table-grid-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
-.table-grid.mode-takeout .table-grid-btn.active { background: #d97706; border-color: #d97706; color: #fff; }
-.table-grid.mode-delivery .table-grid-btn.active { background: #00b14f; border-color: #00b14f; color: #fff; }
+.table-grid.mode-takeout .table-grid-btn.active { background: #E25822; border-color: #E25822; color: #fff; }
+.table-grid.mode-delivery .table-grid-btn.active { background: #0B6623; border-color: #0B6623; color: #fff; }
 
 .category-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; flex: none; }
 .cat-btn {
@@ -104,8 +104,8 @@ select#orderEditItemPicker {
 }
 .cat-btn.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .menu-pane.mode-dinein .cat-btn.active { background: #2563eb; border-color: #2563eb; color: #fff; }
-.menu-pane.mode-takeout .cat-btn.active { background: #d97706; border-color: #d97706; color: #fff; }
-.menu-pane.mode-delivery .cat-btn.active { background: #00b14f; border-color: #00b14f; color: #fff; }
+.menu-pane.mode-takeout .cat-btn.active { background: #E25822; border-color: #E25822; color: #fff; }
+.menu-pane.mode-delivery .cat-btn.active { background: #0B6623; border-color: #0B6623; color: #fff; }
 
 .menu-grid {
   flex: 1; overflow-y: auto;
@@ -128,8 +128,8 @@ select#orderEditItemPicker {
 .addon-badge { font-size: 11px; font-weight: 600; color: var(--accent); background: #fdf1ec; border-radius: 999px; padding: 1px 6px; vertical-align: middle; }
 .menu-item .price { color: var(--accent); font-weight: 700; margin-top: 8px; font-size: 14px; }
 .menu-pane.mode-dinein .menu-item .name { color: #2563eb; }
-.menu-pane.mode-takeout .menu-item .name { color: #6b4226; }
-.menu-pane.mode-delivery .menu-item .name { color: #145a32; }
+.menu-pane.mode-takeout .menu-item .name { color: #E25822; }
+.menu-pane.mode-delivery .menu-item .name { color: #0B6623; }
 
 /* CART */
 .cart-pane {
