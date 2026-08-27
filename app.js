@@ -351,13 +351,22 @@ function effectivePrice(item, mode) {
   return item.price * (1 + pct / 100);
 }
 
-// Add-ons and required-option price deltas don't have their own delivery
-// override field, so they always scale by the global delivery markup %
-// (even when the item itself uses a flat per-item override price).
+// Add-on / required-choice prices scale by the global delivery markup % by
+// default, unless a per-add-on / per-choice delivery override was set.
 function effectiveExtraPrice(rawPrice, mode) {
   if (mode !== "delivery") return rawPrice;
   const pct = DB.settings.deliveryMarkupPct || 0;
   return rawPrice * (1 + pct / 100);
+}
+
+function effectiveAddOnPrice(addOn, mode) {
+  if (mode === "delivery" && addOn.deliveryPrice != null) return addOn.deliveryPrice;
+  return effectiveExtraPrice(addOn.price, mode);
+}
+
+function effectiveChoiceDelta(choice, mode) {
+  if (mode === "delivery" && choice.deliveryPriceDelta != null) return choice.deliveryPriceDelta;
+  return effectiveExtraPrice(choice.priceDelta, mode);
 }
 
 /* ---------- Per-table open orders ---------- */
@@ -471,7 +480,7 @@ function renderNoteRequiredGroups(item, mode) {
     block.className = "required-group-block";
     block.innerHTML = `<span class="group-title">${escapeHtml(group.name)} <span class="required-star">*必选</span></span>`;
     (group.choices || []).forEach((choice) => {
-      const delta = effectiveExtraPrice(choice.priceDelta, mode);
+      const delta = effectiveChoiceDelta(choice, mode);
       const row = document.createElement("label");
       row.className = "required-choice-row";
       row.innerHTML = `
@@ -511,7 +520,7 @@ function renderNoteAddOns(item, mode) {
   }
   section.classList.remove("hidden");
   addOns.forEach((addOn) => {
-    const price = effectiveExtraPrice(addOn.price, mode);
+    const price = effectiveAddOnPrice(addOn, mode);
     const row = document.createElement("label");
     row.className = "addon-check-row";
     row.innerHTML = `
@@ -550,13 +559,13 @@ $("#noteAddBtn").addEventListener("click", () => {
 
   const note = $("#noteInput").value.trim();
   const modeForPricing = noteModalContext === "orderEdit" ? editingOrderMode : orderMode;
-  const addOnsTotal = noteSelectedAddOns.reduce((s, a) => s + effectiveExtraPrice(a.price, modeForPricing), 0);
+  const addOnsTotal = noteSelectedAddOns.reduce((s, a) => s + effectiveAddOnPrice(a, modeForPricing), 0);
   const requiredChoices = groups.map((g) => ({
     groupId: g.id,
     groupName: g.name,
     choiceId: noteSelectedRequired[g.id].id,
     choiceName: noteSelectedRequired[g.id].name,
-    priceDelta: effectiveExtraPrice(noteSelectedRequired[g.id].priceDelta, modeForPricing),
+    priceDelta: effectiveChoiceDelta(noteSelectedRequired[g.id], modeForPricing),
   }));
   const requiredTotal = requiredChoices.reduce((s, c) => s + c.priceDelta, 0);
   const base = effectivePrice(noteTargetItem, modeForPricing);
@@ -1180,7 +1189,8 @@ function renderRequiredGroupsEditList() {
       row.className = "addon-edit-row";
       row.innerHTML = `
         <input type="text" class="addon-name-input" placeholder="选项名称，例如中份" value="${escapeHtml(choice.name)}">
-        <input type="number" class="addon-price-input" step="0.01" placeholder="加价" value="${choice.priceDelta}">
+        <div class="price-field-group"><span>堂食加价</span><input type="number" class="addon-price-input" step="0.01" placeholder="加价" value="${choice.priceDelta}"></div>
+        <div class="price-field-group"><span>外卖加价</span><input type="number" class="addon-delivery-price-input" step="0.01" placeholder="自动" value="${choice.deliveryPriceDelta != null ? choice.deliveryPriceDelta : ""}"></div>
         <button type="button" class="addon-remove-btn">×</button>
       `;
       row.querySelector(".addon-name-input").addEventListener("input", (e) => {
@@ -1188,6 +1198,9 @@ function renderRequiredGroupsEditList() {
       });
       row.querySelector(".addon-price-input").addEventListener("input", (e) => {
         choice.priceDelta = Number(e.target.value) || 0;
+      });
+      row.querySelector(".addon-delivery-price-input").addEventListener("input", (e) => {
+        choice.deliveryPriceDelta = e.target.value === "" ? null : Number(e.target.value) || 0;
       });
       row.querySelector(".addon-remove-btn").addEventListener("click", () => {
         group.choices.splice(cIdx, 1);
@@ -1220,7 +1233,8 @@ function renderAddOnEditList() {
     row.innerHTML = `
       <span class="drag-handle">⠿</span>
       <input type="text" class="addon-name-input" placeholder="名称，例如加蛋" value="${escapeHtml(addOn.name)}">
-      <input type="number" class="addon-price-input" min="0" step="0.01" placeholder="价格" value="${addOn.price}">
+      <div class="price-field-group"><span>堂食价格</span><input type="number" class="addon-price-input" min="0" step="0.01" placeholder="价格" value="${addOn.price}"></div>
+      <div class="price-field-group"><span>外卖价格</span><input type="number" class="addon-delivery-price-input" min="0" step="0.01" placeholder="自动" value="${addOn.deliveryPrice != null ? addOn.deliveryPrice : ""}"></div>
       <button type="button" class="addon-remove-btn">×</button>
     `;
     row.querySelector(".addon-name-input").addEventListener("input", (e) => {
@@ -1228,6 +1242,9 @@ function renderAddOnEditList() {
     });
     row.querySelector(".addon-price-input").addEventListener("input", (e) => {
       editingAddOns[idx].price = Number(e.target.value) || 0;
+    });
+    row.querySelector(".addon-delivery-price-input").addEventListener("input", (e) => {
+      editingAddOns[idx].deliveryPrice = e.target.value === "" ? null : Number(e.target.value) || 0;
     });
     row.querySelector(".addon-remove-btn").addEventListener("click", () => {
       editingAddOns.splice(idx, 1);
@@ -1253,14 +1270,14 @@ $("#itemSaveBtn").addEventListener("click", () => {
     return;
   }
   const addOns = editingAddOns
-    .map((a) => ({ id: a.id, name: a.name.trim(), price: Number(a.price) || 0 }))
+    .map((a) => ({ id: a.id, name: a.name.trim(), price: Number(a.price) || 0, deliveryPrice: a.deliveryPrice != null ? Number(a.deliveryPrice) || 0 : null }))
     .filter((a) => a.name);
   const requiredGroups = editingRequiredGroups
     .map((g) => ({
       id: g.id,
       name: g.name.trim(),
       choices: g.choices
-        .map((c) => ({ id: c.id, name: c.name.trim(), priceDelta: Number(c.priceDelta) || 0 }))
+        .map((c) => ({ id: c.id, name: c.name.trim(), priceDelta: Number(c.priceDelta) || 0, deliveryPriceDelta: c.deliveryPriceDelta != null ? Number(c.deliveryPriceDelta) || 0 : null }))
         .filter((c) => c.name),
     }))
     .filter((g) => g.name && g.choices.length > 0);

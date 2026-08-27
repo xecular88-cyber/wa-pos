@@ -1,4 +1,4 @@
-const CACHE = "pos-cache-v7";
+const CACHE = "pos-cache-v8";
 const ASSETS = ["./", "index.html", "styles.css", "app.js", "manifest.json"];
 
 self.addEventListener("install", (e) => {
