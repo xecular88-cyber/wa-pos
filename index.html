@@ -238,15 +238,10 @@
         <label>平台订单号（可选，方便对账）</label>
         <input type="text" id="deliveryOrderIdInput" placeholder="例如 GF-992">
       </div>
-      <div class="form-row">
-        <label>平台佣金 %</label>
-        <input type="number" id="deliveryCommissionInput" min="0" max="100" step="0.1">
-      </div>
-      <div class="form-row">
-        <label>SST % （政府服务税，加在佣金上，Grab 一般是 8%）</label>
-        <input type="number" id="deliverySstInput" min="0" max="100" step="0.1">
-      </div>
+      <input type="number" id="deliveryCommissionInput" class="hidden" min="0" max="100" step="0.1">
+      <input type="number" id="deliverySstInput" class="hidden" min="0" max="100" step="0.1">
       <div class="change-due" id="deliveryNetDisplay"></div>
+      <div class="print-sub">佣金/SST 按设置页的默认值自动算，要改就去「设置」调</div>
     </div>
     <div class="modal-actions">
       <button class="ghost-btn" id="checkoutCancelBtn">返回</button>
